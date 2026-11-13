@@ -1,3 +1,12 @@
+# Wecker 1.7.1
+
+- **Weckdauer in den Wecker-Einstellungen:** Unter Zahnrad → Weckmusik feste Minuten oder **Wenn Titel endet** wählen. Die Dauer steht nicht mehr in der Musikauswahl. Dauer, Lautstärke und weitere Einstellungen werden zusammen gespeichert; Abbrechen und fehlgeschlagene Speichervorgänge erhalten den bisherigen Stand. Bereits eingestellte Dauern bleiben erhalten.
+- **Aktualisieren in der Tagestypenverwaltung:** Prüft die aktuell gespeicherten Dashboardkarten einschließlich verschachtelter Karten und Statuskarten. Frühere Kartenkennungen werden nicht als aktuelle Verwendung gezählt. Gespeicherte Wecker ohne Dashboardkarte stehen getrennt in der Liste, da sie weiterhin schalten können. Die Prüfung löscht und deaktiviert keine Wecker. Nicht lesbare Dashboards erzeugen einen sichtbaren Fehler statt eines falschen Leerstands.
+- Unter allen Tagestypen steht **Blau hinterlegt: aktiv in den nächsten 24 Stunden.** Alle Symbole bleiben blau.
+- HA UI Kit 1.4.1, Gerätebindungen, Berechtigungen, Hue-Einstellungen und persönliche Weckzeiten bleiben erhalten.
+
+**Update:** Wecker aktualisieren, Home Assistant neu starten und den Browser mit Strg+F5 vollständig neu laden. Music Manager 2.2.1 bleibt unverändert verwendbar und benötigt für diese Korrektur kein weiteres Update.
+
 # Wecker 1.7.0
 
 - Direkt in der Weckmusikauswahl sind feste Minuten oder **Wenn Titel endet** wählbar. Bei fester Dauer wird der gewählte Titel auf allen zugeordneten Boxen bis zum Ablauf wiederholt. **Dauer übernehmen** ändert die Dauer auch ohne neue Titelwahl. Bestehende Wecker starten weiterhin mit fünf Minuten.

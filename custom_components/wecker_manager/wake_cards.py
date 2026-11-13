@@ -83,14 +83,18 @@ async def set_playback(hass, caller, alarm_id, card_id, raw):
     policy = validate_playback(raw)
     async with runtime(hass)["lock"]:
         entry, record, owner = await checked_record(hass, caller, alarm_id, card_id)
-        if policy["mode"] == "track_end":
-            from homeassistant.components.frontend.storage import async_user_store
-            selected = selection_from(await async_user_store(hass, owner.id), alarm_id)
-            if not selected or selected.get("media_type") != "track":
-                raise AccessError("invalid_config", "„Wenn Titel endet“ benötigt einen einzelnen Titel. Für Radio bitte eine feste Dauer wählen.")
+        await check_playback_selection(hass, owner, alarm_id, policy)
         updated = {**record, "playback": policy, "revision": record["revision"] + 1}
         save_record(hass, entry, alarm_id, updated)
         return snapshot(hass, updated)
+
+
+async def check_playback_selection(hass, owner, alarm_id, policy):
+    if policy["mode"] == "track_end":
+        from homeassistant.components.frontend.storage import async_user_store
+        selected = selection_from(await async_user_store(hass, owner.id), alarm_id)
+        if not selected or selected.get("media_type") != "track":
+            raise AccessError("invalid_config", "„Wenn Titel endet“ benötigt einen einzelnen Titel. Für Radio bitte eine feste Dauer wählen.")
 
 
 async def queue_repeat(mass, queue_id, mode):
@@ -289,7 +293,7 @@ def validate_settings(raw, days=None):
     return result
 
 
-async def catalog(hass, caller, owner_id=None):
+async def catalog(hass, caller, owner_id=None, *, refresh_usage=False):
     require_admin(caller)
     entry = entry_for(hass)
     accounts = []
@@ -327,6 +331,24 @@ async def catalog(hass, caller, owner_id=None):
                        "used_by": [{"name": record.get("name", "Wecker"), "owner": owner_names.get(record["binding"]["owner_id"], "")} for record in cards.values() if any(d.get("template_id") == item["id"] for d in day_definitions(record))]}
                       for item in templates.values() if not item["calendar_entity"] or item["calendar_entity"] in calendars]
     available_days.sort(key=lambda item: item["name"].casefold())
+    usage_checked_at = None
+    if refresh_usage:
+        from .dashboard_usage import current_references
+        references = await current_references(hass)
+        for item in available_days:
+            uses = [record for record in cards.values() if any(day.get("template_id") == item["id"] for day in day_definitions(record))]
+            item["stored_uses"] = len(uses)
+            item["used_by"], item["unassigned"] = [], []
+            for record in uses:
+                binding = record["binding"]
+                use = {"name": record.get("name", "Wecker"), "owner": owner_names.get(binding["owner_id"], "")}
+                dashboards = references.get((binding["alarm_id"], binding["card_id"]))
+                if dashboards:
+                    item["used_by"].append({**use, "dashboards": sorted(dashboards)})
+                else:
+                    item["unassigned"].append(use)
+            item["uses"] = len(item["used_by"])
+        usage_checked_at = dt_util.utcnow().isoformat()
     allowed_lights = set().union(*(hue_scenes.light_members(hass, item["id"]) for item in devices["lights"])) if devices["lights"] else set()
     scenes = []
     for state in hass.states.async_all():
@@ -354,7 +376,7 @@ async def catalog(hass, caller, owner_id=None):
                 continue
         scenes.append({"id": state.entity_id, "label": state.attributes.get("friendly_name", state.entity_id), "members": sorted(members), "lights": per_light})
     scenes.sort(key=lambda item: item["label"].casefold())
-    return {"accounts": accounts, "shared_days": available_days, "hue_scenes": scenes, **devices}
+    return {"accounts": accounts, "shared_days": available_days, "hue_scenes": scenes, **devices, **({"usage_checked_at": usage_checked_at} if refresh_usage else {})}
 
 
 async def save_day_template(hass, caller, raw, revision):
@@ -529,9 +551,9 @@ async def create_card(hass, caller, config, *, reconfigure=False, revision=None,
         return snapshot(hass, cards[alarm_id])
 
 
-async def update_card(hass, caller, alarm_id, card_id, settings, revision, confirm_disable=None):
+async def update_card(hass, caller, alarm_id, card_id, settings, revision, confirm_disable=None, playback=None):
     async with runtime(hass)["lock"]:
-        entry, record, _ = await checked_record(hass, caller, alarm_id, card_id)
+        entry, record, owner = await checked_record(hass, caller, alarm_id, card_id)
         if type(revision) is not int or revision != record["revision"]:
             raise AccessError("conflict", "Die Einstellungen wurden auf einem anderen Gerät geändert. Bitte erneut laden.")
         if isinstance(settings, dict) and "sunrise_minutes" not in settings:
@@ -548,7 +570,12 @@ async def update_card(hass, caller, alarm_id, card_id, settings, revision, confi
         changed_sunrise = any(item.get("sunrise_minutes", validated["sunrise_minutes"] if kind == "schultag" else 0) not in (0, sunrise_minutes(record, kind)) for kind, item in validated["types"].items())
         if changed_sunrise and not has_dimmable_light(hass, record["binding"]):
             raise AccessError("invalid_config", "Für den Sonnenaufgang ist mindestens eine fest zugeordnete dimmbare Lampe erforderlich.")
+        if playback is not None:
+            playback = validate_playback(playback)
+            await check_playback_selection(hass, owner, alarm_id, playback)
         updated = {**record, "settings": validated, "revision": record["revision"] + 1}
+        if playback is not None:
+            updated["playback"] = playback
         save_record(hass, entry, alarm_id, updated)
         return snapshot(hass, updated)
 
@@ -745,6 +772,7 @@ async def upcoming_info(hass, caller, alarm_id, card_id):
     vol.Optional("day_template"): dict,
     vol.Optional("template_id"): str,
     vol.Optional("playback"): dict,
+    vol.Optional("refresh_usage"): bool,
 })
 @websocket_api.async_response
 async def websocket_wake_card(hass, connection, msg):
@@ -752,7 +780,7 @@ async def websocket_wake_card(hass, connection, msg):
         async with asyncio.timeout(45):
             action = msg["action"]
             if action == "catalog":
-                result = await catalog(hass, connection.user, msg.get("owner_id"))
+                result = await catalog(hass, connection.user, msg.get("owner_id"), refresh_usage=msg.get("refresh_usage", False))
             elif action == "set_playback":
                 result = await set_playback(hass, connection.user, msg.get("alarm_id"), msg.get("card_id"), msg.get("playback"))
             elif action == "save_day_template":
@@ -770,7 +798,7 @@ async def websocket_wake_card(hass, connection, msg):
             elif action == "configure":
                 result = await create_card(hass, connection.user, msg.get("config"), reconfigure=True, revision=msg.get("revision"), confirm_disable=msg.get("confirm_disable"))
             elif action == "update":
-                result = await update_card(hass, connection.user, msg.get("alarm_id"), msg.get("card_id"), msg.get("settings"), msg.get("revision"), msg.get("confirm_disable"))
+                result = await update_card(hass, connection.user, msg.get("alarm_id"), msg.get("card_id"), msg.get("settings"), msg.get("revision"), msg.get("confirm_disable"), playback=msg.get("playback"))
             elif action == "set_enabled":
                 result = await set_enabled(hass, connection.user, msg.get("alarm_id"), msg.get("card_id"), msg.get("kind"), msg.get("enabled"), msg.get("confirm_disable"))
             else:
