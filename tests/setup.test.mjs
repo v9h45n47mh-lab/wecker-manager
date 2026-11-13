@@ -95,7 +95,7 @@ test('administrator can configure existing day policies without changing fixed d
 });
 test('full card edit can change account, speakers and device targets without replacing the alarm',async()=>{
  const e=setup();await flush();await e.music();for(let i=0;i<3;i++)e.click('setup-next');e.click('setup-finish');await flush();const id=e.created.binding.card_id,settings=clone(e.created.settings);
- e.click('edit-card');await flush();e.click('setup-next');e.change('wake-name','Pauls Wecker');e.change('wake-owner','paul');await flush();await e.pick('speakers',['media_player.second']);
+ e.click('edit-card');await flush();e.click('setup-next');const name=e.editor.shadowRoot.querySelector('#wake-name');name.value='Pauls Wecker';name.dispatchEvent(new e.window.Event('input',{bubbles:true}));e.change('wake-owner','paul');await flush();await e.pick('speakers',['media_player.second']);
  e.click('setup-next');await e.pick('covers',['cover.one']);e.click('device-open','[data-kind="covers"]');e.change('setup-position','45');e.click('device-save');e.click('setup-next');e.click('setup-next');
  e.fail=true;e.click('setup-finish');await flush();assert.equal(e.created.binding.owner_id,'max');e.fail=false;e.click('setup-finish');await flush();
  assert.equal(e.created.binding.owner_id,'paul');assert.deepEqual(e.created.binding.speakers,['media_player.second']);assert.equal(e.created.binding.covers[0].position,45);assert.equal(e.created.binding.card_id,id);assert.deepEqual(e.created.settings,settings);assert.equal(e.created.name,'Pauls Wecker');e.editor.remove();

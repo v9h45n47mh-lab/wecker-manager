@@ -241,9 +241,10 @@ class MusicManagerAlarmCardEditor extends HTMLElement {
     this._ensure();
     if(!this._unbind)this._unbind=bindUI(this.shadowRoot,event=>this._action(event));
     if(!this._change){this._change=event=>this._changeField(event);this.shadowRoot.addEventListener('change',this._change);}
+    if(!this._textInput){this._textInput=event=>{if(this._loading||this._creating)return;if(event.target.id==='wake-name')this._config.name=event.target.value;if(event.target.id==='day-name'&&this._dayEdit)this._dayEdit.name=event.target.value;};this.shadowRoot.addEventListener('input',this._textInput);}
     this._subscribe();this._load();this._render();
   }
-  disconnectedCallback(){this._epoch++;this._loading=false;this._unsubscribe?.();this._unsubscribe=null;this._unbind?.();this._unbind=null;this.shadowRoot.removeEventListener('change',this._change);this._change=null;}
+  disconnectedCallback(){this._epoch++;this._loading=false;this._unsubscribe?.();this._unsubscribe=null;this._unbind?.();this._unbind=null;this.shadowRoot.removeEventListener('change',this._change);this._change=null;this.shadowRoot.removeEventListener('input',this._textInput);this._textInput=null;}
   _ensure(){
     if(this._body)return;
     this.shadowRoot.innerHTML=`<style>${UI_CSS}
@@ -448,7 +449,7 @@ class MusicManagerAlarmCardEditor extends HTMLElement {
     if(id==='setup-shared-day'){this._sharedChoice=value;this._render();return;}
     if(this._locked&&!this._managingDays&&!this._editingCard)return;
     if(id.startsWith('day-')&&this._dayEdit){const keys={'day-name':'name','day-icon':'icon','day-music':'music_mode','day-calendar':'calendar_entity','day-calendar-mode':'calendar_mode'};if(id==='day-confirm')this._dayEdit.confirm_disable=value==='confirm';else if(keys[id])this._dayEdit[keys[id]]=value;if(id==='day-icon')this.shadowRoot.getElementById('day-icon-preview').setAttribute('icon',value);if(id==='day-calendar'){this.shadowRoot.getElementById('day-calendar-condition').hidden=!value;this.shadowRoot.getElementById('day-calendar-mode').disabled=!value;}return;}
-    if(id==='wake-name'){c.name=value;this._emit();this._render();}
+    if(id==='wake-name'){c.name=value;this._emit();}
     else if(id==='wake-owner'){
       c.owner_id=value;this._error='';this._hint='';this._emit();this._loadedKey=null;this._load(true);
     }else if(id==='wake-calendar'){c.calendar_entity=value;this._emit();this._render();}
