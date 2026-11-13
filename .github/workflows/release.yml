@@ -1,0 +1,56 @@
+name: Validate and release Wecker Manager
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  validate-release:
+    runs-on: ubuntu-latest
+    env:
+      CHROMIUM_PATH: /usr/bin/google-chrome
+      MUSIC_MANAGER_SOURCE: ${{ github.workspace }}/.test-deps/music-manager
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: v9h45n47mh-lab/music-manager
+          ref: 5b312361676197bf1178ce76b63ab46ac76d3975
+          path: .test-deps/music-manager
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - run: npm run check
+      - run: npm test
+      - run: npm run test:browser
+      - run: python3 scripts/package.py
+      - name: Commit verified distribution
+        if: github.event_name != 'pull_request'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add dist custom_components/wecker_manager/frontend Vorschau.html
+          if ! git diff --cached --quiet; then
+            git commit -m "Build verified Wecker Manager distribution"
+            git push origin HEAD:main
+          fi
+      - name: Publish first tested version
+        if: github.event_name != 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version=$(node -p 'JSON.parse(require("fs").readFileSync("package.json","utf8")).version')
+          if ! gh release view "v${version}" >/dev/null 2>&1; then
+            gh release create "v${version}" --target "$(git rev-parse HEAD)" --title "Wecker Manager ${version}" --notes-file RELEASE_NOTES.md "../Wecker-Manager-${version}.zip" dist/wecker-manager-card.js dist/LICENSES.txt
+          fi
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: wecker-browser-layouts
+          path: test-results/

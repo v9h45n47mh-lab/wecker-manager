@@ -1,0 +1,18 @@
+{
+  "name": "wecker-manager",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "license": "MIT",
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "check": "node scripts/build.mjs --check",
+    "test": "node --test tests/*.test.mjs",
+    "test:browser": "node tests/browser.cjs",
+    "package": "python3 scripts/package.py"
+  },
+  "devDependencies": {
+    "playwright": "1.62.1",
+    "linkedom": "0.18.15"
+  }
+}

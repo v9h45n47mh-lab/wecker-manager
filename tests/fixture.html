@@ -1,0 +1,42 @@
+<!doctype html><html lang="de"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Weckerkarte · Vorschau</title>
+<style>
+body{margin:0;padding:20px 12px;background:#f3f5f7;--primary-color:#03a9f4;--primary-text-color:#212121;--secondary-text-color:#727272;--card-background-color:#fff;--ha-card-background:#fff;--secondary-background-color:#f5f5f5;--divider-color:#ddd;font-family:Arial,sans-serif;--ha-font-family-body:Arial,sans-serif}
+body.dark{background:#10151c;--primary-text-color:#f2f4f6;--secondary-text-color:#b2bcc8;--card-background-color:#1b222c;--ha-card-background:#1b222c;--secondary-background-color:#252f3b;--divider-color:#394451}
+main{max-width:540px;margin:auto}#editor{margin-top:20px}button#theme{display:block;margin:0 auto 12px;padding:8px 16px}
+</style><button id="theme">Hell / Dunkel</button><main><div id="card"></div><div id="editor"></div></main>
+<script type="module" src="../custom_components/wecker_manager/frontend/wecker-manager-card.js"></script>
+<script type="module">
+await customElements.whenDefined('wecker-manager-card');
+if(!customElements.get('music-manager-alarm-row'))customElements.define('music-manager-alarm-row',class extends HTMLElement{constructor(){super();this.attachShadow({mode:'open'});}setConfig(config){this.config=config;this.shadowRoot.innerHTML='<div style=\"padding:10px 0;border-bottom:1px solid var(--divider-color);color:var(--primary-text-color)\"><strong>Weckmusik · alle drei Wecker</strong><div style=\"font-size:12px;color:var(--secondary-text-color)\">TOP STRIKER</div></div>';}set hass(value){this._hass=value}});
+const clone=value=>JSON.parse(JSON.stringify(value));
+const config={type:'custom:wecker-manager-card',name:'Maximilians Wecker',alarm_id:'m_wecker_schultag',card_id:'max_card',owner_id:'max',speakers:['media_player.max','media_player.dress'],covers:[{entity_id:'cover.max',position:100},{entity_id:'cover.dress',position:65}],lights:[{entity_id:'light.max',brightness:80,color_mode:'temperature',kelvin:2700},{entity_id:'light.dress',brightness:40,color_mode:'colour',rgb:[255,150,50]}],calendar_entity:'calendar.school',sunrise_minutes:5};
+const settings={volume:10,types:{schultag:{time:'06:12',enabled:true,music:true,presets:['05:55','06:15']},wochenende:{time:'08:00',enabled:true,music:false,presets:['09:00','10:00','11:00']},ferien:{time:'10:00',enabled:true,music:false,presets:['09:00','10:00','11:00']}}};
+const item=(id,label,attributes={})=>({id,label,description:id,attributes});
+const catalog={accounts:[{value:'max',label:'Maximilian'},{value:'paul',label:'Paul'}],speakers:[item('media_player.max','Maximilian'),item('media_player.dress','Ankleide')],covers:[item('cover.max','Maximilian',{supported_features:15}),item('cover.dress','Ankleide',{supported_features:15})],lights:[item('light.max','Deckenlicht',{supported_color_modes:['color_temp'],min_color_temp_kelvin:2000,max_color_temp_kelvin:6500}),item('light.dress','Bettlicht',{supported_color_modes:['rgb']})],calendars:[item('calendar.school','Schulfreie Tage')],automations:[item('automation.old','M – Wecker') ]};
+const records=new Map();
+const binding=({type,name,replace_automation,...rest})=>rest;
+records.set(config.alarm_id,{exists:true,binding:binding(config),settings:clone(settings),revision:1});
+const listeners=new Set(),calls=[];let user='admin',fail=false,delay=null;
+const connection={async subscribeEvents(cb){listeners.add(cb);return ()=>listeners.delete(cb);}};
+const notify=alarm_id=>{for(const cb of listeners)cb({data:{alarm_id}});};
+const makeHass=()=>({user:{id:user,is_admin:user==='admin'},connection,states:{},
+ async callWS(msg){calls.push(clone(msg));if(delay)await delay;if(fail&&msg.action==='update')throw {code:'save_failed',message:'Speichern fehlgeschlagen'};
+ if(msg.type==='music_manager/alarm')return {owner:'Maximilian',source:'Maximilian',selection:{title:'TOP STRIKER',uri:'apple_music--max://track/top',media_type:'track'},songs:[{title:'TOP STRIKER',uri:'apple_music--max://track/top',media_type:'track'}],in_songs:true};
+ if(msg.type!=='wecker_manager/card')throw Error('Unbekannte Anfrage');
+ if(msg.action==='catalog'){if(user!=='admin')throw Error('Keine Berechtigung');return clone(catalog);}
+ const record=records.get(msg.alarm_id||msg.config?.alarm_id);
+ if(record&&user!=='admin'&&user!==record.binding.owner_id)throw Error('Dieser Wecker gehört einem anderen Benutzer.');
+ if(msg.action==='get')return record&&record.binding.card_id===msg.card_id?clone(record):{exists:false,can_create:user==='admin',replaces_card:!!record};
+ if(msg.action==='create'){if(record?.binding.card_id===msg.config.card_id&&JSON.stringify(record.binding)!==JSON.stringify(binding(msg.config)))throw Error('Geräte sind festgelegt.');const next={exists:true,binding:binding(msg.config),settings:clone(settings),revision:1};records.set(msg.config.alarm_id,next);notify(msg.config.alarm_id);return clone(next);}
+ if(msg.action==='update'){if(msg.revision!==record.revision)throw {code:'conflict',message:'Auf einem anderen Gerät geändert.'};record.settings=clone(msg.settings);record.revision++;notify(msg.alarm_id);return clone(record);}
+ }});
+const card=document.createElement('wecker-manager-card');card.setConfig(config);card.hass=makeHass();document.querySelector('#card').append(card);
+let editor;
+if(new URLSearchParams(location.search).has('editor')){editor=document.createElement('wecker-manager-card-editor');editor.setConfig({...config,card_id:'new_card',alarm_id:'new_alarm',owner_id:'',speakers:[],covers:[],lights:[],calendar_entity:'',sunrise_minutes:0});editor.hass=makeHass();editor.addEventListener('config-changed',event=>{window.wakeDemo.edited=event.detail.config;});document.querySelector('#editor').append(editor);}
+document.querySelector('#theme').onclick=()=>document.body.classList.toggle('dark');
+window.wakeDemo={card,editor,config,records,catalog,calls,listeners,notify,makeHass,edited:null,
+ set fail(value){fail=value},set delay(value){delay=value},
+ switchUser(value){user=value;card.hass=makeHass();if(editor)editor.hass=makeHass();},
+ remoteChange(change){const record=records.get(config.alarm_id);change(record);record.revision++;notify(config.alarm_id);}};
+</script></html>
