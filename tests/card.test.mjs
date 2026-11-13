@@ -7,7 +7,7 @@ import {parseHTML} from 'linkedom';
 const bundle=await readFile(new URL('../dist/wecker-manager-card.js',import.meta.url),'utf8');
 const clone=value=>JSON.parse(JSON.stringify(value));
 const flush=async()=>{for(let i=0;i<12;i++)await new Promise(resolve=>setImmediate(resolve));};
-function fixture({days,settings:override,header,status=false,upcoming={schultag:{active:true,label:'13.11. 06:12'},wochenende:{active:false},ferien:{active:false}}}={}){
+function fixture({days,settings:override,header,status=false,admin=false,upcoming={schultag:{active:true,label:'13.11. 06:12'},wochenende:{active:false},ferien:{active:false}}}={}){
  const {window}=parseHTML('<!doctype html><html><body></body></html>'),{document}=window;
  window.HTMLElement.prototype.showModal=function(){this.open=true;};
  window.HTMLElement.prototype.close=function(){this.open=false;this.dispatchEvent(new window.Event('close'));};
@@ -21,12 +21,13 @@ function fixture({days,settings:override,header,status=false,upcoming={schultag:
  const record={exists:true,binding:clone(config),settings:clone(settings),revision:1,...(days?{days:clone(days)}:{})},calls=[],listeners=new Set();delete record.binding.type;
  let fail=false,user='max';
  const connection={async subscribeEvents(callback){listeners.add(callback);return ()=>listeners.delete(callback);}};
- const hass=()=>({user:{id:user},connection,states:{},async callWS(msg){calls.push(clone(msg));
+ const hass=()=>({user:{id:user,is_admin:admin},connection,states:{},async callWS(msg){calls.push(clone(msg));
   if(user!=='max'&&msg.type==='wecker_manager/card')throw {code:'unauthorized',message:'Anderer Benutzer'};
   if(msg.type==='music_manager/alarm')return {owner:'Maximilian',source:'Box',selection:{title:'TOP STRIKER'},songs:[]};
   if(msg.action==='day_info')return {date:'2026-11-14',kind:'wochenende',label:msg.day_offset===0?'Heute ist Schultag':'Morgen ist Wochenende'};
   if(msg.action==='upcoming')return {types:clone(upcoming)};
   if(msg.action==='get')return clone(record);
+  if(msg.action==='catalog')return {shared_days:[],calendars:[]};
   if(msg.action==='update'){if(fail)throw {code:'save_failed',message:'Speichern fehlgeschlagen'};if(msg.revision!==record.revision)throw {code:'conflict',message:'Auf einem anderen Gerät geändert'};record.settings=clone(msg.settings);record.revision++;for(const callback of listeners)callback({data:{alarm_id:'school'}});return clone(record);}
   if(msg.action==='set_enabled'){if(fail)throw {code:'save_failed',message:'Speichern fehlgeschlagen'};record.settings.types[msg.kind].enabled=msg.enabled;record.revision++;for(const callback of listeners)callback({data:{alarm_id:'school'}});return clone(record);}
   throw Error('Unbekannte Anfrage');
@@ -139,4 +140,11 @@ test('compact status card follows the same alarms live and never creates a music
  e.remoteChange(record=>record.settings.types.schultag.enabled=false);await flush();assert.match(e.card.shadowRoot.querySelector('.status-line').getAttribute('aria-label'),/Schultag · Aus/);
  assert.equal(e.card.shadowRoot.querySelector('.status-dot').classList.contains('on'),false);assert(!e.calls.some(call=>['create','update','set_enabled'].includes(call.action)));
  e.switchUser('paul');await flush();assert.equal(e.card.shadowRoot.querySelectorAll('.status-line').length,0);e.card.remove();assert.equal(e.listeners.size,0);
+});
+
+test('administrator settings render with supported UI Kit icons and open the shared day manager',async()=>{
+ const e=fixture({admin:true});await flush();e.click('settings');
+ assert(e.card.shadowRoot.querySelector('#wake-volume'));assert(e.card.shadowRoot.querySelector('[data-action="edit-card"]'));
+ e.click('manage-templates');await flush();assert(e.card.shadowRoot.querySelector('#wake-templates-dialog').open);assert(e.card.shadowRoot.querySelector('wecker-manager-day-manager').shadowRoot.querySelector('[data-action="day-add"]'));
+ e.card.remove();assert.equal(e.listeners.size,0);
 });

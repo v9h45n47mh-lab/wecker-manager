@@ -163,7 +163,7 @@ class MusicManagerAlarmCard extends HTMLElement {
       const durations=[...new Set([0,5,10,15,20,30,sunrise])].sort((a,b)=>a-b);
       const light=selectField({id:kind==='schultag'?'wake-sunrise-setting':'wake-sunrise-'+kind,label:'Sonnenaufgang',value:String(sunrise),disabled:!available&&!sunrise,options:durations.map(n=>({value:String(n),label:n?`${n} Minuten vor der Weckzeit`:'Aus'})),hint:available?'Die zugeordneten dimmbaren Lichter werden bis zur Weckzeit aufgeblendet.':'Hierfür wird eine zugeordnete dimmbare Lampe benötigt.'}).replace('<select ',`<select data-wake-sunrise="${escapeHtml(kind)}" `);
       return section({id:`presets-${kind}`,title:day.name,content:light+`<div><p class="hint">Bis zu drei Schnellzeiten</p>${item.presets.map((time,slot)=>`<div class="wake-preset-line">${button({label:time,action:'preset-edit',data:{kind,slot}})}${iconButton({icon:'trash',label:`Schnellzeit ${time} entfernen`,action:'preset-remove',data:{kind,slot}})}</div>`).join('')}${item.presets.length<3?button({label:'Zeit hinzufügen',icon:'add',action:'preset-add',data:{kind}}):''}</div>`});
-    }).join('')+(this._hass?.user?.is_admin?button({label:'Gesamte Karte bearbeiten',icon:'edit',action:'edit-card'})+button({label:'Tagestypen verwalten',icon:'calendar',action:'manage-templates'}):'');
+    }).join('')+(this._hass?.user?.is_admin?button({label:'Gesamte Karte bearbeiten',icon:'edit',action:'edit-card'})+button({label:'Tagestypen verwalten',icon:'menu',action:'manage-templates'}):'');
   }
   async _changeCardField(event){
     const element=event.target;
