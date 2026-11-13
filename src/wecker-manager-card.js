@@ -246,7 +246,7 @@ class MusicManagerAlarmCardEditor extends HTMLElement {
   _musicValid(){return Boolean(this._config.owner_id&&this._config.speakers.length&&String(this._config.name??'Wecker').trim());}
   _render(){
     if(!this._body||!this._config)return;
-    if(this._locked){this._body.innerHTML=notice('Musikkonto, Boxen, Rollläden und Lichter sind festgelegt. Für Änderungen diese Karte entfernen und eine neue Weckerkarte anlegen.');return;}
+    if(this._locked){for(const modal of [this._pickerDialog,this._deviceDialog])if(modal.open)modal.close();this.shadowRoot.getElementById('setup-picker-body').replaceChildren();this.shadowRoot.getElementById('setup-device-body').replaceChildren();this._body.innerHTML=notice('Musikkonto, Boxen, Rollläden und Lichter sind festgelegt. Für Änderungen diese Karte entfernen und eine neue Weckerkarte anlegen.');return;}
     if(!this._catalog){this._body.innerHTML=(this._loading?loadingState('Einrichtung wird geladen …'):'')+(this._error?notice(this._error,{error:true})+button({label:'Erneut laden',action:'editor-reload'}):'');return;}
     const step=SETUP_STEPS[this._step],busy=this._loading||this._creating;
     const next=this._step===1&&!this._config.covers.length?'Ohne Rollläden weiter':this._step===2&&!this._config.lights.length?'Ohne Licht weiter':`Weiter${this._step===0?' zu Rollläden':this._step===1?' zu Licht':this._step===2?' zu Schultagen':' zur Übersicht'}`;
@@ -255,7 +255,7 @@ class MusicManagerAlarmCardEditor extends HTMLElement {
       ${this._error?notice(this._error,{error:true}):''}${this._hint?notice(this._hint):''}${this._loading?loadingState('Geräte werden geladen …'):''}
       <div class="setup-page" id="setup-page">${this._page()}</div>
       <div class="setup-footer">${button({label:'Zurück',action:'setup-back',disabled:busy||this._step===0})}${this._step===SETUP_STEPS.length-1?button({label:this._creating?'Wird angelegt …':'Wecker anlegen',action:'setup-finish',variant:'primary',disabled:busy||!this._musicValid()}):button({label:next,action:'setup-next',variant:'primary',disabled:busy||this._step===0&&!this._musicValid()})}</div>`;
-    for(const button of this._body.querySelectorAll('button'))if(busy)button.disabled=true;
+    for(const button of this._body.querySelectorAll('button,input,select'))if(busy)button.disabled=true;
   }
   _page(){
     const c=this._config,cat=this._catalog;
