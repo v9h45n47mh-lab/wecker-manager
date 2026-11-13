@@ -382,12 +382,14 @@ async def catalog(hass, caller, owner_id=None, *, refresh_usage=False):
     return {"accounts": accounts, "shared_days": available_days, "hue_scenes": scenes, **devices, **({"usage_checked_at": usage_checked_at} if refresh_usage else {})}
 
 
-async def save_day_template(hass, caller, raw, revision):
+async def save_day_template(hass, caller, raw, revision, apply_policies=False):
     require_admin(caller)
     fields = {"id", "name", "icon", "weekdays", "calendar_entity", "calendar_mode"}
-    if not isinstance(raw, dict) or not fields <= set(raw) or set(raw) - fields - {"display_name"} or type(revision) is not int or revision < 0:
+    if not isinstance(raw, dict) or not fields <= set(raw) or set(raw) - fields - {"display_name", *shared_days.POLICIES} or type(revision) is not int or revision < 0 or type(apply_policies) is not bool:
         raise AccessError("invalid_config", "Der gemeinsame Tagestyp ist unvollständig.")
-    day = validate_days([{**raw, "music_mode": "switchable", "confirm_disable": False}])[0]
+    if apply_policies and not set(shared_days.POLICIES) <= set(raw):
+        raise AccessError("invalid_config", "Bitte Musik und Ausschaltverhalten vollständig auswählen.")
+    day = validate_days([{**raw, **shared_days.policies(raw)}])[0]
     entry = entry_for(hass)
     async with runtime(hass)["lock"]:
         templates, cards, migrated = shared_days.migrate(entry.options)
@@ -403,7 +405,8 @@ async def save_day_template(hass, caller, raw, revision):
             return {"saved": True, "template": deepcopy(matching), "already_exists": True}
         if any(key != day["id"] and item["name"].casefold() == day["name"].casefold() for key, item in templates.items()):
             raise AccessError("name_in_use", "Dieser Name ist bereits vergeben. Bitte einen eindeutigen Namen wählen; der Anzeigename darf gleich sein.")
-        template = {"id": day["id"], **shared_days.common(day), "revision": revision + 1}
+        defaults = {key: raw[key] if key in raw else shared_days.policies(previous or {})[key] for key in shared_days.POLICIES}
+        template = {"id": day["id"], **shared_days.common(day), **defaults, "revision": revision + 1}
         templates[day["id"]] = template
         changed = set(migrated)
         for alarm_id, record in cards.items():
@@ -412,6 +415,8 @@ async def save_day_template(hass, caller, raw, revision):
             for item in days:
                 if item.get("template_id") == day["id"]:
                     item.update(shared_days.common(template), template_revision=template["revision"])
+                    if apply_policies:
+                        item.update(shared_days.policies(template))
                     affected = True
             if affected:
                 validate_days(days)
@@ -856,6 +861,7 @@ async def upcoming_info(hass, caller, alarm_id, card_id):
     vol.Optional("refresh_usage"): bool,
     vol.Optional("setup_id"): str,
     vol.Optional("remove_cards"): list,
+    vol.Optional("apply_policies"): bool,
 })
 @websocket_api.async_response
 async def websocket_wake_card(hass, connection, msg):
@@ -877,7 +883,7 @@ async def websocket_wake_card(hass, connection, msg):
             elif action == "set_playback":
                 result = await set_playback(hass, connection.user, msg.get("alarm_id"), msg.get("card_id"), msg.get("playback"))
             elif action == "save_day_template":
-                result = await save_day_template(hass, connection.user, msg.get("day_template"), msg.get("revision"))
+                result = await save_day_template(hass, connection.user, msg.get("day_template"), msg.get("revision"), msg.get("apply_policies", False))
             elif action == "delete_day_template":
                 result = await delete_day_template(hass, connection.user, msg.get("template_id"), msg.get("revision"), msg.get("remove_cards"))
             elif action == "day_info":
