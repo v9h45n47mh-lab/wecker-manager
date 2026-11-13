@@ -1,3 +1,11 @@
+# Wecker 1.6.1
+
+- Die kompakte Statuskarte zeigt je Tagestyp zusätzlich die aktuell eingestellte Weckzeit im Format HH:MM. Die Zeit bleibt auch bei ausgeschaltetem Wecker sichtbar und aktualisiert sich zusammen mit dem Status automatisch.
+- Die Versionsanzeige steht in den Wecker-Einstellungen unten, nach den Einstellungen und Verwaltungsaktionen.
+- Die Übersicht bleibt auf schmalen Displays mit zwei Karten nebeneinander nutzbar. Schrift und Statusfarben verwenden weiterhin das unveränderte HA UI Kit 1.4.1.
+
+In HACS aktualisieren, Home Assistant neu starten und den Browser vollständig neu laden (Strg+F5). Die YAML vorhandener Statuskarten muss nicht geändert werden.
+
 # Wecker 1.6.0
 
 - Markierte Radiosender aus Music Manager 2.2.0 sind als persönliche Weckmusik auf allen zugeordneten Sonos-Boxen verwendbar.

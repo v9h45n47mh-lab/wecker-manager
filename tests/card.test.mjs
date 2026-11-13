@@ -136,8 +136,10 @@ test('only enabled types returned in the next 24 hours are blue; all others are 
 test('compact status card follows the same alarms live and never creates a music row or write controls',async()=>{
  const e=fixture({status:true});await flush();
  assert.equal(e.card.shadowRoot.querySelector('#status-title').textContent,'Maximilian');assert.equal(e.card.shadowRoot.querySelectorAll('.status-line').length,3);
+ assert.deepEqual([...e.card.shadowRoot.querySelectorAll('.status-time')].map(time=>time.textContent),['06:12','09:00','10:00']);
  assert.equal(e.card.shadowRoot.querySelectorAll('button,music-manager-alarm-row').length,0);assert(!e.calls.some(call=>call.type==='music_manager/alarm'));
- e.remoteChange(record=>record.settings.types.schultag.enabled=false);await flush();assert.match(e.card.shadowRoot.querySelector('.status-line').getAttribute('aria-label'),/Schultag · Aus/);
+ e.remoteChange(record=>{record.settings.types.schultag.enabled=false;record.settings.types.schultag.time='07:23';});await flush();assert.match(e.card.shadowRoot.querySelector('.status-line').getAttribute('aria-label'),/Schultag · Aus · 07:23 Uhr/);
+ assert.equal(e.card.shadowRoot.querySelector('[data-status-kind="schultag"] time').getAttribute('datetime'),'07:23');
  assert.equal(e.card.shadowRoot.querySelector('.status-dot').classList.contains('on'),false);assert(!e.calls.some(call=>['create','update','set_enabled'].includes(call.action)));
  e.switchUser('paul');await flush();assert.equal(e.card.shadowRoot.querySelectorAll('.status-line').length,0);e.card.remove();assert.equal(e.listeners.size,0);
 });
@@ -145,6 +147,7 @@ test('compact status card follows the same alarms live and never creates a music
 test('administrator settings render with supported UI Kit icons and open the shared day manager',async()=>{
  const e=fixture({admin:true});await flush();e.click('settings');
  assert(e.card.shadowRoot.querySelector('#wake-volume'));assert(e.card.shadowRoot.querySelector('[data-action="edit-card"]'));
+ assert(e.card.shadowRoot.querySelector('#wake-settings').lastElementChild.classList.contains('version-info'));
  e.click('manage-templates');await flush();assert(e.card.shadowRoot.querySelector('#wake-templates-dialog').open);assert(e.card.shadowRoot.querySelector('wecker-manager-day-manager').shadowRoot.querySelector('[data-action="day-add"]'));
  e.card.remove();assert.equal(e.listeners.size,0);
 });

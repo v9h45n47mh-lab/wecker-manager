@@ -1,6 +1,6 @@
 # Kompakte Wecker-Statusübersicht
 
-Ab Wecker **1.5.0** steht zusätzlich **Wecker-Status** zur Verfügung. Die Karte zeigt eine Überschrift und je Tagestyp ein Symbol sowie **An/Aus**. Sie liest denselben zentral gespeicherten Zustand wie die bedienbare Weckerkarte und aktualisiert sich automatisch.
+Ab Wecker **1.5.0** steht zusätzlich **Wecker-Status** zur Verfügung. Die Karte zeigt eine Überschrift und je Tagestyp ein Symbol sowie **An/Aus**. Seit **1.6.1** steht rechts in jeder Zeile zusätzlich die eingestellte Weckzeit im Format **HH:MM**, auch bei ausgeschaltetem Wecker. Sie liest denselben zentral gespeicherten Zustand wie die bedienbare Weckerkarte und aktualisiert sich automatisch.
 
 1. Die zugehörige normale Weckerkarte bearbeiten und **Code-Editor anzeigen** wählen.
 2. Deren Werte für `alarm_id` und `card_id` kopieren. Die Werte unverändert lassen.

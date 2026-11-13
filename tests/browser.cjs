@@ -65,7 +65,8 @@ let browser;
  await action('settings').click();const settings=card().locator('#wake-settings-dialog');
  const slider=settings.locator('#wake-volume');assert.equal(await slider.getAttribute('min'),'5');assert.equal(await slider.getAttribute('max'),'15');
  assert.equal(await settings.locator('select').count(),3);assert(await settings.locator('#wake-sunrise-setting').isVisible());assert.equal(await settings.locator('[data-ui-multi]').count(),0);
- assert(await settings.evaluate(el=>el.getBoundingClientRect().width<=480));assert.match(await settings.locator('.version-info').innerText(),/Wecker 1\.6\.0/);
+ assert(await settings.evaluate(el=>el.getBoundingClientRect().width<=480));assert.match(await settings.locator('.version-info').innerText(),/Wecker 1\.6\.1/);
+ assert(await settings.locator('#wake-settings').evaluate(el=>el.lastElementChild.classList.contains('version-info')));
  await slider.press('End');await settings.locator('#wake-sunrise-setting').selectOption('15');
  await settings.locator('[data-action="preset-remove"][data-kind="schultag"]').first().click();
  await settings.getByRole('button',{name:'Speichern',exact:true}).click();await settings.waitFor({state:'hidden'});
@@ -84,7 +85,8 @@ let browser;
   await page.screenshot({path:path.join(screens,`wake-${width}-${dark?'dark':'light'}.png`),fullPage:true});
   assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
   await action('settings').click();assert(await settings.isVisible());assert(await settings.evaluate(el=>el.getBoundingClientRect().right<=innerWidth));
-  await page.screenshot({path:path.join(screens,`wake-settings-${width}-${dark?'dark':'light'}.png`),fullPage:true});await page.keyboard.press('Escape');
+  await page.screenshot({path:path.join(screens,`wake-settings-${width}-${dark?'dark':'light'}.png`),fullPage:true});
+  await settings.locator('.version-info').scrollIntoViewIfNeeded();assert(await settings.locator('.version-info').isVisible());await settings.screenshot({path:path.join(screens,`wake-settings-version-bottom-${width}-${dark?'dark':'light'}.png`)});await page.keyboard.press('Escape');
   await action('time').first().click();assert(await time.isVisible());assert(await time.evaluate(el=>el.getBoundingClientRect().right<=innerWidth));
   await page.screenshot({path:path.join(screens,`wake-time-${width}-${dark?'dark':'light'}.png`),fullPage:true});await page.keyboard.press('Escape');
  }
@@ -213,8 +215,8 @@ let browser;
  await page.keyboard.press('Escape');await managerDialog.waitFor({state:'hidden'});await card().locator('wecker-manager-day-manager').waitFor({state:'detached'});
  await page.evaluate(()=>{const pair=document.createElement('div');pair.id='status-pair';pair.style.cssText='display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin:16px auto;max-width:540px';for(const [id,name] of [[wakeDemo.config.alarm_id,'Maximilian'],['new_alarm','Paul']]){const record=wakeDemo.records.get(id),status=document.createElement('wecker-manager-status-card');status.setConfig({type:'custom:wecker-manager-status-card',alarm_id:id,card_id:record.binding.card_id,name});status.hass=wakeDemo.makeHass();pair.append(status);}document.body.append(pair);});
  const statuses=page.locator('#status-pair wecker-manager-status-card');await statuses.first().locator('.status-line').first().waitFor();assert.equal(await statuses.locator('button,music-manager-alarm-row').count(),0);
- for(const width of [1100,390,320])for(const dark of [false,true]){await page.setViewportSize({width,height:1100});await page.evaluate(d=>document.body.classList.toggle('dark',d),dark);assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));await page.locator('#status-pair').screenshot({path:path.join(screens,`status-pair-${width}-${dark?'dark':'light'}.png`)});}
- await page.evaluate(()=>wakeDemo.remoteChange(record=>record.settings.types.schultag.enabled=false));await statuses.first().locator('.status-line[aria-label="Unterrichtstag · Aus"]').waitFor();
+ for(const width of [1100,390,320])for(const dark of [false,true]){await page.setViewportSize({width,height:1100});await page.evaluate(d=>document.body.classList.toggle('dark',d),dark);assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));assert(await statuses.locator('.status-line').evaluateAll(rows=>rows.every(row=>{const time=row.querySelector('time'),box=row.getBoundingClientRect(),label=time.previousElementSibling.getBoundingClientRect(),clock=time.getBoundingClientRect();return clock.right<=box.right+1&&clock.left>=label.right&&clock.top>=box.top&&clock.bottom<=box.bottom;})));await page.locator('#status-pair').screenshot({path:path.join(screens,`status-pair-${width}-${dark?'dark':'light'}.png`)});}
+ await page.evaluate(()=>wakeDemo.remoteChange(record=>{record.settings.types.schultag.enabled=false;record.settings.types.schultag.time='07:23';}));await statuses.first().locator('.status-line[aria-label="Unterrichtstag · Aus · 07:23 Uhr"]').waitFor();assert.equal(await statuses.first().locator('[data-status-kind="schultag"] time').innerText(),'07:23');
  await page.evaluate(()=>document.querySelector('#status-pair').remove());
  // Reproduce the supplied YAML: account selected, empty devices and a 1.1 catalog without automations.
  await page.goto(url+'?editor=1&setup_only=1&prefilled=1&missing_optional=1');

@@ -1,4 +1,4 @@
-# UI-Kit-Prüfung für Wecker 1.5.0
+# UI-Kit-Prüfung für Wecker 1.6.1
 
 Der Wecker bindet HA UI Kit 1.4.1 unverändert am Commit `393474e75869ba79195d800624a5a793a51fe2c4` ein. Der Build prüft die festgehaltenen Prüfsummen von JavaScript, CSS und Lizenz.
 
