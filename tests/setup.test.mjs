@@ -19,50 +19,70 @@ function setup({config={},catalog:override}={}){
  const editor=document.createElement('wecker-manager-card-editor');
  editor.setConfig({type:'custom:wecker-manager-card',alarm_id:'new_alarm',card_id:'new_card',owner_id:'',speakers:[],covers:[],lights:[],calendar_entity:'',sunrise_minutes:0,...config});
  editor.addEventListener('config-changed',e=>events.push(clone(e.detail.config)));
- editor.hass={user:{id:'admin'},connection:{async subscribeEvents(){return ()=>{}}},states:{},async callWS(msg){calls.push(clone(msg));if(msg.action==='get')return created||{exists:false,can_create:true};if(msg.action==='catalog')return clone(catalog);if(msg.action==='create'){if(fail)throw Error('Box ist offline');created={exists:true,binding:clone(msg.config),revision:1};return clone(created);}}};
+ editor.hass={user:{id:'admin',is_admin:true},connection:{async subscribeEvents(){return ()=>{}}},states:{},async callWS(msg){calls.push(clone(msg));
+  if(msg.action==='get')return clone(created||{exists:false,can_create:true});
+  if(msg.action==='catalog')return clone(catalog);
+  if(msg.action==='create'){
+   if(fail)throw Error('Box ist offline');const {days,...binding}=msg.config;
+   created={exists:true,binding:clone(binding),days:clone(days),revision:1,settings:{types:Object.fromEntries(days.map(d=>[d.id,{enabled:false,time:'06:00',music:d.music_mode==='always',presets:[]}]))}};return clone(created);
+  }
+  if(msg.action==='configure_days'){created.days=clone(msg.days);created.revision++;return clone(created);}
+ }};
  document.body.append(editor);
  const click=(action,suffix='')=>{const el=editor.shadowRoot.querySelector(`[data-action="${action}"]${suffix}`);assert(el,action+' exists');assert(!el.disabled,action+' enabled');el.click();};
  const change=(id,value)=>{const el=editor.shadowRoot.getElementById(id);assert(el,id+' exists');if(el.tagName==='SELECT'){for(const option of el.options)option.removeAttribute('selected');el.querySelector(`[value="${value}"]`).setAttribute('selected','');}else el.value=value;el.dispatchEvent(new window.Event('change',{bubbles:true}));};
  const pick=async(kind,values)=>{click('picker-open',`[data-kind="${kind}"]`);for(const input of editor.shadowRoot.querySelectorAll('#setup-devices input[type="checkbox"]')){input.checked=values.includes(input.value);input.toggleAttribute('checked',input.checked);input.dispatchEvent(new window.Event('change',{bubbles:true}));}click('picker-save');await flush();};
- return {editor,calls,events,click,change,pick,window,set fail(v){fail=v}};
+ const music=async()=>{click('setup-next');change('wake-owner','max');await flush();await pick('speakers',['media_player.max']);};
+ return {editor,calls,events,click,change,pick,music,window,get created(){return created},set fail(v){fail=v}};
 }
-test('screenshot configuration opens the visual editor without an obsolete automation catalog',async()=>{
- const e=setup({config:{owner_id:'max',replace_automation:'automation.old'}});await flush();
- assert.equal(e.editor.shadowRoot.querySelector('#wake-owner').value,'max');
- assert.equal(e.editor.shadowRoot.querySelectorAll('nav [data-action="navigate"]').length,5);
- assert.equal(e.editor.shadowRoot.querySelector('[role="alert"]'),null);
- assert(!Object.hasOwn(e.events.at(-1),'replace_automation'));
- await e.pick('speakers',['media_player.max']);for(let i=0;i<4;i++)e.click('setup-next');
- assert.match(e.editor.shadowRoot.querySelector('#setup-page').textContent,/Maximilian/);
- assert.equal(e.editor.shadowRoot.querySelector('#wake-replace'),null);e.editor.remove();
+test('configuration starts with named day types and keeps technical IDs hidden',async()=>{
+ const e=setup();await flush();
+ assert.equal(e.editor.shadowRoot.querySelectorAll('.setup-day-row').length,3);
+ assert.match(e.editor.shadowRoot.querySelector('#setup-page').textContent,/Schultag/);
+ assert.equal(e.editor.shadowRoot.querySelector('#wake-owner'),null);
+ assert.equal(e.editor.shadowRoot.querySelector('#wake-alarm-id,#wake-replace'),null);
+ e.click('setup-next');assert(e.editor.shadowRoot.querySelector('[data-action="setup-next"]').disabled);
+ e.change('wake-owner','max');await flush();await e.pick('speakers',['media_player.max','media_player.second']);e.click('setup-next');
+ assert.match(e.editor.shadowRoot.querySelector('#setup-page').textContent,/Rollläden/);e.click('setup-back');assert.equal(e.events.at(-1).speakers.length,2);e.editor.remove();
 });
-test('absent device lists and YAML null selections remain usable in every setup step',async()=>{
- const e=setup({config:{owner_id:'max',speakers:null,covers:null,lights:null},catalog:{covers:undefined,lights:null,calendars:undefined}});await flush();
- assert.equal(e.editor.shadowRoot.querySelector('[role="alert"]'),null);
- await e.pick('speakers',['media_player.max']);e.click('setup-next');e.click('picker-open','[data-kind="covers"]');e.click('picker-cancel');
- e.click('setup-next');e.click('picker-open','[data-kind="lights"]');e.click('picker-cancel');
- e.click('setup-next');assert.equal(e.editor.shadowRoot.querySelector('#wake-calendar').options.length,1);
- e.click('setup-next');assert(!e.editor.shadowRoot.querySelector('[data-action="setup-finish"]').disabled);e.editor.remove();
+test('day dialog edits icon, music, confirmation, weekdays and its own calendar; cancel discards drafts',async()=>{
+ const e=setup();await flush();e.click('day-edit','[data-kind="schultag"]');e.change('day-name','Frühdienst');e.click('day-cancel');
+ assert.match(e.editor.shadowRoot.querySelector('#setup-page').textContent,/Schultag/);
+ e.click('day-edit','[data-kind="schultag"]');e.change('day-name','Frühdienst');e.change('day-icon','mdi:briefcase');e.change('day-music','switchable');e.change('day-confirm','click');e.change('day-calendar','calendar.school');
+ const friday=e.editor.shadowRoot.querySelector('#day-weekdays input[value="4"]');friday.checked=false;friday.removeAttribute('checked');friday.dispatchEvent(new e.window.Event('change',{bubbles:true}));e.click('day-save');
+ const day=e.events.at(-1).days[0];assert.equal(day.name,'Frühdienst');assert.equal(day.icon,'mdi:briefcase');assert.equal(day.music_mode,'switchable');assert.equal(day.confirm_disable,false);assert.equal(day.calendar_entity,'calendar.school');assert.deepEqual(day.weekdays,[0,1,2,3]);
+ assert.match(e.editor.shadowRoot.querySelector('#setup-page').textContent,/nur ganztägige Termine/);e.editor.remove();
 });
-test('setup shows one step, hides technical IDs and validates music before continuing',async()=>{
- const e=setup();await flush();assert.equal(e.editor.shadowRoot.querySelector('[data-action="setup-next"]').disabled,true);
- assert.equal(e.editor.shadowRoot.querySelector('#wake-alarm-id'),null);assert.equal(e.editor.shadowRoot.querySelector('#wake-replace'),null);assert.equal(e.editor.shadowRoot.querySelector('#wake-calendar'),null);
- e.change('wake-owner','max');await flush();await e.pick('speakers',['media_player.max','media_player.second']);e.click('setup-next');await flush();
- assert.match(e.editor.shadowRoot.querySelector('#setup-page').textContent,/Rollläden/);assert.equal(e.editor.shadowRoot.querySelector('#wake-owner'),null);
- e.click('setup-back');await flush();assert.equal(e.events.at(-1).speakers.length,2);e.editor.remove();
+test('empty day list cannot proceed; a new custom day becomes an independent persistent type',async()=>{
+ const e=setup();await flush();for(const id of ['schultag','wochenende','ferien'])e.click('day-remove',`[data-kind="${id}"]`);
+ assert(e.editor.shadowRoot.querySelector('[data-action="setup-next"]').disabled);
+ e.click('day-add');e.change('day-name','Arbeit');e.change('day-icon','mdi:briefcase');e.click('day-save');
+ const day=e.events.at(-1).days[0];assert.match(day.id,/^day_/);assert.equal(day.name,'Arbeit');assert(!e.editor.shadowRoot.querySelector('[data-action="setup-next"]').disabled);e.editor.remove();
 });
-test('device dialogs keep per-device drafts and cancel without changing the configuration',async()=>{
- const e=setup();await flush();e.change('wake-owner','max');await flush();await e.pick('speakers',['media_player.max']);e.click('setup-next');await e.pick('covers',['cover.one']);
+test('preselected account and missing optional device lists still open every setup step',async()=>{
+ const e=setup({config:{owner_id:'max',replace_automation:'automation.old',covers:null,lights:null},catalog:{covers:undefined,lights:null,calendars:undefined}});await flush();
+ assert.equal(e.editor.shadowRoot.querySelectorAll('nav [data-action="navigate"]').length,5);assert(!Object.hasOwn(e.events.at(-1),'replace_automation'));
+ e.click('setup-next');await e.pick('speakers',['media_player.max']);e.click('setup-next');e.click('picker-open','[data-kind="covers"]');e.click('picker-cancel');e.click('setup-next');e.click('picker-open','[data-kind="lights"]');e.click('picker-cancel');e.click('setup-next');
+ assert(!e.editor.shadowRoot.querySelector('[data-action="setup-finish"]').disabled);e.editor.remove();
+});
+test('device dialogs retain per-device drafts and cancel without changing the configuration',async()=>{
+ const e=setup();await flush();await e.music();e.click('setup-next');await e.pick('covers',['cover.one']);
  e.click('device-open','[data-kind="covers"]');e.change('setup-position','65');e.click('device-cancel');assert.equal(e.events.at(-1).covers[0].position,100);
  e.click('device-open','[data-kind="covers"]');e.change('setup-position','65');e.click('device-save');assert.equal(e.events.at(-1).covers[0].position,65);
  e.click('setup-next');await e.pick('lights',['light.one']);e.click('device-open','[data-kind="lights"]');e.change('setup-colourmode','temperature');e.click('device-save');
  assert.equal(e.events.at(-1).lights[0].kelvin,3000);e.click('setup-back');e.click('setup-next');assert.equal(e.events.at(-1).lights[0].kelvin,3000);e.editor.remove();
 });
-test('only finishing the review creates a card, failed creation retains all selections',async()=>{
- const e=setup();await flush();e.change('wake-owner','max');await flush();await e.pick('speakers',['media_player.max']);
- for(let i=0;i<4;i++)e.click('setup-next');
+test('finishing creates one card; failed creation retains devices and day policies',async()=>{
+ const e=setup();await flush();await e.music();for(let i=0;i<3;i++)e.click('setup-next');
  assert.equal(e.calls.filter(c=>c.action==='create').length,0);assert.match(e.editor.shadowRoot.querySelector('#setup-page').textContent,/Maximilian/);
- e.fail=true;e.click('setup-finish');await flush();assert.match(e.editor.shadowRoot.querySelector('.error').textContent,/offline/);assert(e.editor.shadowRoot.querySelector('[data-action="setup-finish"]'));
+ e.fail=true;e.click('setup-finish');await flush();assert.match(e.editor.shadowRoot.querySelector('.error').textContent,/offline/);
  e.fail=false;e.click('setup-finish');await flush();assert.match(e.editor.shadowRoot.querySelector('.notice').textContent,/festgelegt/);assert.equal(e.editor.shadowRoot.querySelector('select'),null);
- assert(!Object.hasOwn(e.calls.at(-1).config,'replace_automation'));e.editor.remove();
+ const create=e.calls.find(c=>c.action==='create');assert.equal(create.config.days.length,3);assert(!Object.hasOwn(create.config,'replace_automation'));e.editor.remove();
+});
+test('administrator can configure existing day policies without changing fixed devices',async()=>{
+ const e=setup();await flush();await e.music();for(let i=0;i<3;i++)e.click('setup-next');e.click('setup-finish');await flush();const binding=clone(e.created.binding);
+ e.click('manage-days');e.click('day-edit','[data-kind="wochenende"]');e.change('day-name','Freie Tage');e.click('day-save');e.click('manage-days-cancel');
+ e.click('manage-days');assert.match(e.editor.shadowRoot.querySelector('#setup-page')?.textContent||e.editor.shadowRoot.querySelector('#setup-body').textContent,/Wochenende/);
+ e.click('day-edit','[data-kind="wochenende"]');e.change('day-name','Freie Tage');e.click('day-save');e.click('manage-days-save');await flush();
+ assert.equal(e.created.days[1].name,'Freie Tage');assert.deepEqual(e.created.binding,binding);e.editor.remove();
 });

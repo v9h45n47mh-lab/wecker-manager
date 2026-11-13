@@ -58,7 +58,7 @@ class WakeCardTests(IsolatedAsyncioTestCase):
         other = NS(id='ha-b', name='Paul', is_active=True, system_generated=False, is_admin=False, permissions=owner.permissions)
         users = {u.id:u for u in (owner, admin, other)}
         hass.auth = NS(async_get_user=AsyncMock(side_effect=users.get))
-        hass.services = NS(async_call=AsyncMock())
+        hass.services = NS(async_call=AsyncMock(return_value={'calendar.school':{'events':[]}}))
         hass.bus = NS(async_fire=Mock())
         music_entry = hass.data['music_manager']['entry']
         entry = NS(options={'accounts':music_entry.options['accounts']},data={},entry_id='wecker-entry')
@@ -170,11 +170,15 @@ class WakeCardTests(IsolatedAsyncioTestCase):
         data=await self.wake.create_card(hass,admin,c)
         record=hass.data['wecker_manager']['wecker-entry'].options['wake_cards'][c['alarm_id']]
         for kind in self.wake.TYPES:record['settings']['types'][kind].update(enabled=True,time='06:00')
+        await self.wake.prepare_calendars(hass,record,(await hass.auth.async_get_user(c['owner_id'])),self.now,force=True)
         self.assertEqual(self.wake.due_phases(hass,record,self.now),[('schultag','wake','2026-11-13')])
         states['calendar.school'].state='on'
+        hass.services.async_call.return_value={'calendar.school':{'events':[{'start':'2026-11-13','end':'2026-11-14'}]}}
+        await self.wake.prepare_calendars(hass,record,(await hass.auth.async_get_user(c['owner_id'])),self.now,force=True)
         self.assertEqual(self.wake.due_phases(hass,record,self.now),[('ferien','wake','2026-11-13')])
         self.assertEqual(self.wake.due_phases(hass,record,self.now+timedelta(days=1)),[('wochenende','wake','2026-11-14')])
         states['calendar.school'].state='unavailable'
+        await self.wake.prepare_calendars(hass,record,(await hass.auth.async_get_user(c['owner_id'])),self.now,force=True)
         with self.assertRaises(self.wake.AccessError):self.wake.due_phases(hass,record,self.now)
 
     async def test_revoked_account_or_permissions_never_play_as_another_user(self):
@@ -226,6 +230,8 @@ class WakeCardTests(IsolatedAsyncioTestCase):
         data=await self.activate(hass,admin,config)
         record=entry.options['wake_cards'][config['alarm_id']]
         record['settings'].pop('sunrise_minutes')  # Simulate a stored 1.1.x card.
+        record['settings']['types']['schultag'].pop('sunrise_minutes',None)
+        await self.wake.prepare_calendars(hass,record,owner,self.now,force=True,include_disabled=True)
         self.assertEqual(self.wake.snapshot(hass,record)['settings']['sunrise_minutes'],5)
         self.assertEqual(self.wake.due_phases(hass,record,self.now-timedelta(minutes=5)),[('schultag','sunrise','2026-11-13')])
         settings=deepcopy(data['settings']);settings['sunrise_minutes']=15
@@ -240,6 +246,7 @@ class WakeCardTests(IsolatedAsyncioTestCase):
         self.assertEqual(transitions,[899,899])
         # An older client editing another setting must retain the chosen sunrise.
         settings.pop('sunrise_minutes')
+        for item in settings['types'].values():item.pop('sunrise_minutes',None)
         preserved=await self.wake.update_card(hass,owner,config['alarm_id'],config['card_id'],settings,updated['revision'])
         self.assertEqual(preserved['settings']['sunrise_minutes'],15)
         settings['sunrise_minutes']=0
@@ -268,13 +275,16 @@ class WakeCardTests(IsolatedAsyncioTestCase):
         self.assertEqual(school['kind'],'schultag')
         self.assertEqual(hass.services.async_call.call_args.args[2]['start_date_time'],'2026-11-16T00:00:00+01:00')
         hass.services.async_call.return_value={'calendar.school':{'events':[{'start':'2026-11-16','end':'2026-11-17'}]}}
+        states['calendar.school'].last_updated='updated'
         free=await self.wake.tomorrow_info(hass,owner,config['alarm_id'],config['card_id'])
         self.assertEqual(free['kind'],'ferien');self.assertNotIn('events',free)
         hass.services.async_call.side_effect=RuntimeError('Offline')
+        states['calendar.school'].last_updated='offline'
         unknown=await self.wake.tomorrow_info(hass,owner,config['alarm_id'],config['card_id'])
         self.assertIsNone(unknown['kind'])
         hass.services.async_call.reset_mock();permission.allowed=False
-        with self.assertRaises(self.wake.AccessError):await self.wake.tomorrow_info(hass,owner,config['alarm_id'],config['card_id'])
+        denied=await self.wake.tomorrow_info(hass,owner,config['alarm_id'],config['card_id'])
+        self.assertIsNone(denied['kind'])
         hass.services.async_call.assert_not_awaited()
 
     async def test_upgrade_renames_the_default_entry_without_changing_stored_alarms(self):
@@ -297,3 +307,121 @@ class WakeCardTests(IsolatedAsyncioTestCase):
             self.assertTrue(await package.async_setup_entry(hass,entry))
             self.assertEqual(entry.title,'Schlafzimmer')
             hass.config_entries.async_update_entry.assert_not_called()
+
+    def custom_day(self, **changes):
+        return {'id':'arbeit','name':'Arbeit','icon':'mdi:briefcase','weekdays':[0,1,2,3,4],
+                'music_mode':'always','confirm_disable':True,'calendar_entity':'calendar.school',**changes}
+
+    async def test_custom_day_calendar_polarity_ignores_timed_events_and_requires_disable_acknowledgement(self):
+        hass,entry,owner,admin,_,config,_,_=self.fixture()
+        config['days']=[self.custom_day()]
+        data=await self.activate(hass,admin,config,kind='arbeit')
+        hass.services.async_call.return_value={'calendar.school':{'events':[{'start':'2026-11-13T00:00:00+01:00','end':'2026-11-14T00:00:00+01:00'}]}}
+        await self.wake.tick(hass,self.now)
+        hass.mass.player_queues.play_media.assert_not_awaited()
+        settings=deepcopy(data['settings']);settings['types']['arbeit']['calendar_mode']='no_event'
+        data=await self.wake.update_card(hass,owner,config['alarm_id'],config['card_id'],settings,data['revision'])
+        await self.wake.tick(hass,self.now)
+        self.assertEqual(hass.mass.player_queues.play_media.await_count,2)
+        settings=deepcopy(data['settings']);settings['types']['arbeit']['enabled']=False
+        with self.assertRaises(self.wake.AccessError) as error:
+            await self.wake.update_card(hass,owner,config['alarm_id'],config['card_id'],settings,data['revision'])
+        self.assertEqual(error.exception.code,'confirmation_required')
+        stopped=await self.wake.update_card(hass,owner,config['alarm_id'],config['card_id'],settings,data['revision'],['arbeit'])
+        self.assertFalse(stopped['settings']['types']['arbeit']['enabled'])
+        self.assertEqual(stopped['binding']['speakers'],config['speakers'])
+
+    async def test_music_policy_and_day_configuration_are_enforced_for_all_clients(self):
+        hass,entry,owner,admin,_,config,_,_=self.fixture()
+        config['days']=[self.custom_day()]
+        data=await self.wake.create_card(hass,admin,config)
+        settings=deepcopy(data['settings']);settings['types']['arbeit']['music']=False
+        with self.assertRaises(self.wake.AccessError):
+            await self.wake.update_card(hass,owner,config['alarm_id'],config['card_id'],settings,data['revision'])
+        days=[self.custom_day(name='Frühdienst',music_mode='switchable',confirm_disable=False)]
+        with self.assertRaises(self.wake.AccessError):
+            await self.wake.configure_days(hass,owner,config['alarm_id'],config['card_id'],days,data['revision'])
+        old_binding=deepcopy(data['binding'])
+        data=await self.wake.configure_days(hass,admin,config['alarm_id'],config['card_id'],days,data['revision'])
+        self.assertEqual(data['binding'],old_binding);self.assertEqual(data['days'][0]['name'],'Frühdienst')
+        settings=deepcopy(data['settings']);settings['types']['arbeit']['music']=False
+        result=await self.wake.update_card(hass,owner,config['alarm_id'],config['card_id'],settings,data['revision'])
+        self.assertFalse(result['settings']['types']['arbeit']['music'])
+
+    async def test_all_day_events_have_exclusive_end_dates_and_calendar_failures_do_not_match_free_days(self):
+        hass,entry,owner,admin,_,config,_,_=self.fixture()
+        config['days']=[self.custom_day()]
+        await self.wake.create_card(hass,admin,config)
+        record=entry.options['wake_cards'][config['alarm_id']]
+        for events,expected in [
+            ([{'start':'2026-11-13T08:00:00+01:00','end':'2026-11-13T18:00:00+01:00'}],False),
+            ([{'start':'2026-11-12','end':'2026-11-13'}],False),
+            ([{'start':'2026-11-13','end':'2026-11-14'}],True),
+            ([{'start':'2026-11-12','end':'2026-11-17'}],True),
+        ]:
+            with self.subTest(events=events):
+                hass.services.async_call.return_value={'calendar.school':{'events':events}}
+                await self.wake.prepare_calendars(hass,record,owner,self.now,force=True,include_disabled=True)
+                self.assertEqual(self.wake.day_matches(hass,record,'arbeit',self.now),expected)
+        record['settings']['types']['arbeit']['calendar_mode']='no_event'
+        hass.services.async_call.side_effect=RuntimeError('Offline')
+        await self.wake.prepare_calendars(hass,record,owner,self.now,force=True,include_disabled=True)
+        with self.assertRaises(self.wake.AccessError):self.wake.day_matches(hass,record,'arbeit',self.now)
+
+    async def test_calendar_is_refreshed_at_alarm_time_and_independent_days_continue_on_calendar_failure(self):
+        hass,entry,owner,admin,_,config,_,_=self.fixture()
+        config['days']=[self.custom_day(),self.custom_day(id='ohne_kalender',name='Ohne Kalender',calendar_entity='',confirm_disable=False)]
+        data=await self.wake.create_card(hass,admin,config)
+        settings=deepcopy(data['settings'])
+        for item in settings['types'].values():item.update(enabled=True,time='06:00',music=True,calendar_mode='no_event')
+        await self.wake.update_card(hass,owner,config['alarm_id'],config['card_id'],settings,data['revision'])
+        record=entry.options['wake_cards'][config['alarm_id']]
+        await self.wake.prepare_calendars(hass,record,owner,self.now)
+        async def service(domain,action,data,**kwargs):
+            if domain=='calendar':raise RuntimeError('Unavailable')
+        hass.services.async_call.side_effect=service
+        await self.wake.tick(hass,self.now)
+        self.assertEqual(hass.mass.player_queues.play_media.await_count,2)
+        runs=entry.options['wake_cards'][config['alarm_id']]['runs']
+        self.assertIn('2026-11-13/ohne_kalender/wake',runs)
+        self.assertNotIn('2026-11-13/arbeit/wake',runs)
+        self.assertIn('Arbeit',self.wake.runtime(hass)['errors'][config['card_id']])
+
+    async def test_reconfiguring_days_preserves_times_and_cannot_remove_a_protected_active_day_without_confirmation(self):
+        hass,entry,owner,admin,_,config,_,_=self.fixture()
+        config['days']=[self.custom_day()]
+        data=await self.activate(hass,admin,config,kind='arbeit',time='07:23')
+        replacement=[self.custom_day(id='frei',name='Frei',calendar_entity='',confirm_disable=False)]
+        with self.assertRaises(self.wake.AccessError) as error:
+            await self.wake.configure_days(hass,admin,config['alarm_id'],config['card_id'],replacement,data['revision'])
+        self.assertEqual(error.exception.code,'confirmation_required')
+        renamed=[self.custom_day(name='Frühdienst')]
+        renamed=await self.wake.configure_days(hass,admin,config['alarm_id'],config['card_id'],renamed,data['revision'])
+        self.assertEqual(renamed['settings']['types']['arbeit']['time'],'07:23')
+        result=await self.wake.configure_days(hass,admin,config['alarm_id'],config['card_id'],replacement,renamed['revision'],['arbeit'])
+        self.assertEqual(set(result['settings']['types']),{'frei'});self.assertFalse(result['settings']['types']['frei']['enabled'])
+
+    async def test_custom_day_sunrise_and_legacy_migration_keep_their_existing_settings(self):
+        hass,entry,owner,admin,_,config,_,_=self.fixture()
+        config['days']=[self.custom_day(calendar_entity='')]
+        data=await self.activate(hass,admin,config,kind='arbeit')
+        settings=deepcopy(data['settings']);settings['types']['arbeit']['sunrise_minutes']=10
+        await self.wake.update_card(hass,owner,config['alarm_id'],config['card_id'],settings,data['revision'])
+        type(self).now-=timedelta(minutes=10)
+        with patch.object(self.wake.asyncio,'sleep',new=AsyncMock()):await self.wake.tick(hass,self.now)
+        transitions=[call.args[2]['transition'] for call in hass.services.async_call.await_args_list if 'transition' in call.args[2]]
+        self.assertEqual(transitions,[599,599]);hass.mass.player_queues.play_media.assert_not_awaited()
+        hass,entry,owner,admin,_,config,_,_=self.fixture()
+        data=await self.activate(hass,admin,config)
+        old=entry.options['wake_cards'][config['alarm_id']];old.pop('days')
+        for item in old['settings']['types'].values():item.pop('calendar_mode',None)
+        migrated=self.wake.snapshot(hass,old)
+        self.assertEqual([d['id'] for d in migrated['days']],['schultag','wochenende','ferien'])
+        self.assertTrue(migrated['days'][0]['confirm_disable']);self.assertEqual(migrated['settings']['types']['schultag']['calendar_mode'],'no_event')
+        self.assertEqual(migrated['settings']['types']['ferien']['calendar_mode'],'event')
+        self.assertEqual(migrated['settings']['types']['schultag']['time'],data['settings']['types']['schultag']['time'])
+
+    def test_day_policy_validation_rejects_duplicate_ids_invalid_icons_and_invalid_weekdays(self):
+        day=self.custom_day()
+        for days in [[],[day,day],[{**day,'icon':'mdi:school" onclick="bad'}],[{**day,'weekdays':[]}],[{**day,'weekdays':[True]}],[{**day,'name':'   '}]]:
+            with self.subTest(days=days),self.assertRaises(self.wake.AccessError):self.wake.validate_days(days)

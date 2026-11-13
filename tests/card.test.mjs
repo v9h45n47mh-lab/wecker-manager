@@ -7,7 +7,7 @@ import {parseHTML} from 'linkedom';
 const bundle=await readFile(new URL('../dist/wecker-manager-card.js',import.meta.url),'utf8');
 const clone=value=>JSON.parse(JSON.stringify(value));
 const flush=async()=>{for(let i=0;i<12;i++)await new Promise(resolve=>setImmediate(resolve));};
-function fixture(){
+function fixture({days,settings:override}={}){
  const {window}=parseHTML('<!doctype html><html><body></body></html>'),{document}=window;
  window.HTMLElement.prototype.showModal=function(){this.open=true;};
  window.HTMLElement.prototype.close=function(){this.open=false;this.dispatchEvent(new window.Event('close'));};
@@ -16,7 +16,8 @@ function fixture(){
  vm.runInContext(bundle.replace(/^export /gm,''),context);
  const config={type:'custom:wecker-manager-card',alarm_id:'school',card_id:'card_1',owner_id:'max',speakers:['media_player.one','media_player.two'],covers:[{entity_id:'cover.one',position:60}],lights:[{entity_id:'light.one',brightness:70,color_mode:'keep'}],calendar_entity:'calendar.school',sunrise_minutes:5};
  const settings={volume:10,sunrise_minutes:5,types:{schultag:{time:'06:12',enabled:true,music:true,presets:['05:55','06:15']},wochenende:{time:'09:00',enabled:true,music:false,presets:['09:00','10:00','11:00']},ferien:{time:'10:00',enabled:true,music:false,presets:['09:00','10:00','11:00']}}};
- const record={exists:true,binding:clone(config),settings:clone(settings),revision:1},calls=[],listeners=new Set();delete record.binding.type;
+ if(override)Object.assign(settings,clone(override));
+ const record={exists:true,binding:clone(config),settings:clone(settings),revision:1,...(days?{days:clone(days)}:{})},calls=[],listeners=new Set();delete record.binding.type;
  let fail=false,user='max';
  const connection={async subscribeEvents(callback){listeners.add(callback);return ()=>listeners.delete(callback);}};
  const hass=()=>({user:{id:user},connection,states:{},async callWS(msg){calls.push(clone(msg));
@@ -44,7 +45,7 @@ test('wake wheel commit, presets and music switches save shared settings',async(
 });
 test('wake settings contain volume, sunrise and at most three presets, never devices or accounts',async()=>{
  const e=fixture();await flush();e.click('settings');await flush();const dialog=e.card.shadowRoot.getElementById('wake-settings-dialog'),slider=dialog.querySelector('#wake-volume');
- assert.equal(slider.getAttribute('min'),'5');assert.equal(slider.getAttribute('max'),'15');assert.equal(dialog.querySelectorAll('select').length,1);assert(dialog.querySelector('#wake-sunrise-setting'));assert.equal(dialog.querySelectorAll('[data-ui-multi]').length,0);assert.equal(dialog.querySelector('[data-action="preset-add"][data-kind="wochenende"]'),null);
+ assert.equal(slider.getAttribute('min'),'5');assert.equal(slider.getAttribute('max'),'15');assert.equal(dialog.querySelectorAll('select').length,3);assert(dialog.querySelector('#wake-sunrise-setting'));assert.equal(dialog.querySelectorAll('[data-ui-multi]').length,0);assert.equal(dialog.querySelector('[data-action="preset-add"][data-kind="wochenende"]'),null);
  slider.value='15';slider.dispatchEvent(new e.window.Event('input',{bubbles:true}));await flush();assert.equal(e.record.settings.volume,10);
  e.click('preset-remove','[data-kind="schultag"][data-slot="0"]');e.click('save-settings');await flush();assert.equal(e.record.settings.volume,15);assert.deepEqual(e.record.settings.types.schultag.presets,['06:15']);e.card.remove();
 });
@@ -83,4 +84,27 @@ test('sunrise settings cancel without saving and save without changing fixed lam
  updated.dispatchEvent(new e.window.Event('change',{bubbles:true}));e.click('save-settings');await flush();
  assert.equal(e.record.settings.sunrise_minutes,15);assert.deepEqual(e.config,original);
  e.card.remove();
+});
+test('custom day names and policies govern music switches and disable confirmation',async()=>{
+ const days=[{id:'arbeit',name:'Frühdienst',icon:'mdi:briefcase',weekdays:[0,1,2,3,4],music_mode:'always',confirm_disable:false,calendar_entity:''},{id:'frei',name:'Freie Tage',icon:'mdi:coffee',weekdays:[5,6],music_mode:'switchable',confirm_disable:true,calendar_entity:''}];
+ const item={time:'07:15',enabled:true,music:true,presets:['07:00'],calendar_mode:'event',sunrise_minutes:0};
+ const e=fixture({days,settings:{types:{arbeit:clone(item),frei:clone(item)}}});await flush();
+ assert.equal(e.card.shadowRoot.querySelectorAll('.wake-type').length,2);
+ assert.match(e.card.shadowRoot.querySelector('.wake-type').textContent,/Frühdienst/);
+ assert.equal(e.card.shadowRoot.querySelector('[data-action="music"][data-kind="arbeit"]'),null);
+ assert(e.card.shadowRoot.querySelector('[data-action="music"][data-kind="frei"]'));
+ e.click('enabled','[data-kind="arbeit"]');await flush();assert.equal(e.record.settings.types.arbeit.enabled,false);assert.equal(Boolean(e.card.shadowRoot.getElementById('wake-confirm-dialog').open),false);
+ e.click('enabled','[data-kind="frei"]');assert(e.card.shadowRoot.getElementById('wake-confirm-dialog').open);
+ assert.equal(e.card.shadowRoot.getElementById('wake-confirm-dialog-title').textContent,'Freie Tage ausschalten?');
+ e.click('confirm-disable');await flush();assert.equal(e.record.settings.types.frei.enabled,false);
+ assert.deepEqual(e.calls.filter(c=>c.action==='update').at(-1).confirm_disable,['frei']);e.card.remove();
+});
+test('calendar polarity is selected and saved directly in the card without rebinding the calendar',async()=>{
+ const days=[{id:'arbeit',name:'Arbeit',icon:'mdi:briefcase',weekdays:[0,1,2,3,4],music_mode:'switchable',confirm_disable:false,calendar_entity:'calendar.school'}];
+ const e=fixture({days,settings:{types:{arbeit:{time:'07:15',enabled:false,music:false,presets:[],calendar_mode:'event',sunrise_minutes:0}}}});await flush();
+ const select=e.card.shadowRoot.querySelector('[data-wake-calendar="arbeit"]');assert(select);
+ for(const option of select.options)option.toggleAttribute('selected',option.value==='no_event');
+ select.dispatchEvent(new e.window.Event('change',{bubbles:true}));await flush();
+ assert.equal(e.record.settings.types.arbeit.calendar_mode,'no_event');assert.equal(e.config.calendar_entity,'calendar.school');
+ assert.match(e.card.shadowRoot.querySelector('.wake-calendar-rule').textContent,/Ganztägiger Termin vorhanden/);e.card.remove();
 });

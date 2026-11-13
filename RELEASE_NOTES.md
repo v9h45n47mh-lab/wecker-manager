@@ -1,10 +1,12 @@
-# Wecker 1.2.0
+# Wecker 1.3.0
 
-- Layout nach der bisherigen Weckerkarte: eigene Anzeige **Morgen ist …**, Weckmusik oben, Symbole vor Weckertyp/Uhrzeit/Musik, dezente Trennlinien und kompakte graue Schnellzeiten nebeneinander.
-- Die zusätzliche Überschrift mit der Boxenanzahl entfällt. Das Zahnrad steht neben der Morgen-Anzeige bereit. Zeiten bleiben antippbar und öffnen die Stunden-/Minutenräder.
-- **Sonnenaufgang am Schultag** liegt jetzt in den normalen Weckereinstellungen: Aus oder 5–30 Minuten Vorlauf. Er verwendet unverändert die beim Anlegen festgelegten Lampen und Zielhelligkeiten.
-- Bereits gespeicherte Sonnenaufgangszeiten werden übernommen. Ändern, Speichern und Abbrechen funktionieren ohne Neuanlage der Karte; auch ältere Clients behalten die gespeicherte Vorlaufzeit bei.
-- Morgen-Anzeige mit Home-Assistant-Zeitzone und tatsächlichen Schulfrei-Kalendereinträgen für den Folgetag. Fehler der Kalenderabfrage werden als Hinweis angezeigt.
-- HA UI Kit 1.4.1 und die Verbindung zum separat installierten Music Manager bleiben erhalten.
+- Die Einrichtung beginnt mit **Tagestypen**. Bis zu zwölf eigene Typen mit Namen, Symbol und Wochentagen sind möglich; Schultag, Wochenende und Ferien sind vorbelegt.
+- Pro Typ: Musik **immer an** oder **schaltbar**, Ausschalten **per Klick** oder **mit Bestätigung**, und optional ein eigener Kalender.
+- Die Kalenderbedingung wird direkt in der Weckerkarte gewählt: **Ganztägiger Termin vorhanden** oder **Kein ganztägiger Termin**. Nur echte ganztägige Termine zählen; Termine mit Uhrzeit werden ignoriert. Enddaten ganztägiger Termine sind exklusiv.
+- Der Kalender wird zur Weckzeit erneut geprüft. Ist er nicht erreichbar, pausiert der betroffene Typ; andere unabhängige Typen können weiterlaufen.
+- Administratoren können die Tagestypen bestehender Karten im Karteneditor bearbeiten. Musikkonto, Lampen, Rollläden und Boxen bleiben dabei fest zugeordnet.
+- Ausschaltbestätigung und Musikpflicht werden auch im Backend geprüft. Gemeinsame Änderungen besitzen weiterhin einen Versionsschutz.
+- Sonnenaufgang und Schnellzeiten sind pro Tagestyp einstellbar. Die vorhandenen drei Typen, Weckzeiten, Musikauswahl, Lautstärke und Lichtvorlauf werden übernommen.
+- HA UI Kit 1.4.1 bleibt unverändert eingebunden.
 
-In HACS aktualisieren, Home Assistant neu starten und den Browser vollständig neu laden (Strg+F5). Vorhandene Karten, Geräte, Musik und Weckzeiten bleiben erhalten.
+In HACS aktualisieren, Home Assistant neu starten und den Browser vollständig neu laden (Strg+F5).
