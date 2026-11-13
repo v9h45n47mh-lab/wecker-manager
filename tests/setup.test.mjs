@@ -32,37 +32,42 @@ function setup({config={},catalog:override}={}){
  const click=(action,suffix='')=>{const el=editor.shadowRoot.querySelector(`[data-action="${action}"]${suffix}`);assert(el,action+' exists');assert(!el.disabled,action+' enabled');el.click();};
  const change=(id,value)=>{const el=editor.shadowRoot.getElementById(id);assert(el,id+' exists');if(el.tagName==='SELECT'){for(const option of el.options)option.removeAttribute('selected');el.querySelector(`[value="${value}"]`).setAttribute('selected','');}else el.value=value;el.dispatchEvent(new window.Event('change',{bubbles:true}));};
  const pick=async(kind,values)=>{click('picker-open',`[data-kind="${kind}"]`);for(const input of editor.shadowRoot.querySelectorAll('#setup-devices input[type="checkbox"]')){input.checked=values.includes(input.value);input.toggleAttribute('checked',input.checked);input.dispatchEvent(new window.Event('change',{bubbles:true}));}click('picker-save');await flush();};
- const music=async()=>{click('setup-next');change('wake-owner','max');await flush();await pick('speakers',['media_player.max']);};
- return {editor,calls,events,click,change,pick,music,window,get created(){return created},set fail(v){fail=v}};
+ const weekdays=values=>{for(const input of editor.shadowRoot.querySelectorAll('#day-weekdays input')){input.checked=values.includes(Number(input.value));input.toggleAttribute('checked',input.checked);input.dispatchEvent(new window.Event('change',{bubbles:true}));}};
+ const addDay=(name='Frühdienst')=>{click('day-add');change('day-name',name);weekdays([0,1,2,3,4]);click('day-save');return events.at(-1).days.at(-1).id;};
+ const music=async()=>{if(!editor._config.days.length)addDay();click('setup-next');change('wake-owner','max');await flush();await pick('speakers',['media_player.max']);};
+ return {editor,calls,events,click,change,pick,music,addDay,weekdays,window,get created(){return created},set fail(v){fail=v}};
 }
-test('configuration starts with named day types and keeps technical IDs hidden',async()=>{
+test('configuration starts empty and requires explicitly chosen names and weekdays',async()=>{
  const e=setup();await flush();
- assert.equal(e.editor.shadowRoot.querySelectorAll('.setup-day-row').length,3);
- assert.match(e.editor.shadowRoot.querySelector('#setup-page').textContent,/Schultag/);
+ assert.equal(e.editor.shadowRoot.querySelectorAll('.setup-day-row').length,0);
+ assert.match(e.editor.shadowRoot.querySelector('#setup-page').textContent,/Noch keine Tagestypen/);
  assert.equal(e.editor.shadowRoot.querySelector('#wake-owner'),null);
  assert.equal(e.editor.shadowRoot.querySelector('#wake-alarm-id,#wake-replace'),null);
- e.click('setup-next');assert(e.editor.shadowRoot.querySelector('[data-action="setup-next"]').disabled);
+ assert(e.editor.shadowRoot.querySelector('[data-action="setup-next"]').disabled);
+ e.click('day-add');assert.equal(e.editor.shadowRoot.querySelector('#day-name').value,'');assert.equal(e.editor.shadowRoot.querySelectorAll('#day-weekdays input:checked').length,0);
+ e.change('day-name','Schicht');e.click('day-save');assert.match(e.editor.shadowRoot.querySelector('#setup-day-error').textContent,/Wochentag/);
+ e.weekdays([1,3]);e.click('day-save');e.click('setup-next');assert(e.editor.shadowRoot.querySelector('[data-action="setup-next"]').disabled);
  e.change('wake-owner','max');await flush();await e.pick('speakers',['media_player.max','media_player.second']);e.click('setup-next');
  assert.match(e.editor.shadowRoot.querySelector('#setup-page').textContent,/Rollläden/);e.click('setup-back');assert.equal(e.events.at(-1).speakers.length,2);e.editor.remove();
 });
 test('day dialog edits icon, music, confirmation, weekdays and its own calendar; cancel discards drafts',async()=>{
- const e=setup();await flush();e.click('day-edit','[data-kind="schultag"]');e.change('day-name','Frühdienst');e.click('day-cancel');
+ const e=setup();await flush();const id=e.addDay('Schultag');e.click('day-edit',`[data-kind="${id}"]`);e.change('day-name','Frühdienst');e.click('day-cancel');
  assert.match(e.editor.shadowRoot.querySelector('#setup-page').textContent,/Schultag/);
- e.click('day-edit','[data-kind="schultag"]');e.change('day-name','Frühdienst');e.change('day-icon','mdi:briefcase');e.change('day-music','switchable');e.change('day-confirm','click');e.change('day-calendar','calendar.school');
+ e.click('day-edit',`[data-kind="${id}"]`);e.change('day-name','Frühdienst');e.change('day-icon','mdi:briefcase');e.change('day-music','switchable');e.change('day-confirm','click');e.change('day-calendar','calendar.school');e.change('day-calendar-mode','event');
  const friday=e.editor.shadowRoot.querySelector('#day-weekdays input[value="4"]');friday.checked=false;friday.removeAttribute('checked');friday.dispatchEvent(new e.window.Event('change',{bubbles:true}));e.click('day-save');
  const day=e.events.at(-1).days[0];assert.equal(day.name,'Frühdienst');assert.equal(day.icon,'mdi:briefcase');assert.equal(day.music_mode,'switchable');assert.equal(day.confirm_disable,false);assert.equal(day.calendar_entity,'calendar.school');assert.deepEqual(day.weekdays,[0,1,2,3]);
- assert.match(e.editor.shadowRoot.querySelector('#setup-page').textContent,/nur ganztägige Termine/);e.editor.remove();
+ assert.equal(day.calendar_mode,'event');assert.match(e.editor.shadowRoot.querySelector('#setup-page').textContent,/gebuchten Kalendertagen/);e.editor.remove();
 });
 test('empty day list cannot proceed; a new custom day becomes an independent persistent type',async()=>{
- const e=setup();await flush();for(const id of ['schultag','wochenende','ferien'])e.click('day-remove',`[data-kind="${id}"]`);
+ const e=setup();await flush();
  assert(e.editor.shadowRoot.querySelector('[data-action="setup-next"]').disabled);
- e.click('day-add');e.change('day-name','Arbeit');e.change('day-icon','mdi:briefcase');e.click('day-save');
+ e.click('day-add');e.change('day-name','Arbeit');e.change('day-icon','mdi:briefcase');e.weekdays([5,6]);e.click('day-save');
  const day=e.events.at(-1).days[0];assert.match(day.id,/^day_/);assert.equal(day.name,'Arbeit');assert(!e.editor.shadowRoot.querySelector('[data-action="setup-next"]').disabled);e.editor.remove();
 });
 test('preselected account and missing optional device lists still open every setup step',async()=>{
  const e=setup({config:{owner_id:'max',replace_automation:'automation.old',covers:null,lights:null},catalog:{covers:undefined,lights:null,calendars:undefined}});await flush();
  assert.equal(e.editor.shadowRoot.querySelectorAll('nav [data-action="navigate"]').length,5);assert(!Object.hasOwn(e.events.at(-1),'replace_automation'));
- e.click('setup-next');await e.pick('speakers',['media_player.max']);e.click('setup-next');e.click('picker-open','[data-kind="covers"]');e.click('picker-cancel');e.click('setup-next');e.click('picker-open','[data-kind="lights"]');e.click('picker-cancel');e.click('setup-next');
+ e.addDay();e.click('setup-next');await e.pick('speakers',['media_player.max']);e.click('setup-next');e.click('picker-open','[data-kind="covers"]');e.click('picker-cancel');e.click('setup-next');e.click('picker-open','[data-kind="lights"]');e.click('picker-cancel');e.click('setup-next');
  assert(!e.editor.shadowRoot.querySelector('[data-action="setup-finish"]').disabled);e.editor.remove();
 });
 test('device dialogs retain per-device drafts and cancel without changing the configuration',async()=>{
@@ -76,13 +81,14 @@ test('finishing creates one card; failed creation retains devices and day polici
  const e=setup();await flush();await e.music();for(let i=0;i<3;i++)e.click('setup-next');
  assert.equal(e.calls.filter(c=>c.action==='create').length,0);assert.match(e.editor.shadowRoot.querySelector('#setup-page').textContent,/Maximilian/);
  e.fail=true;e.click('setup-finish');await flush();assert.match(e.editor.shadowRoot.querySelector('.error').textContent,/offline/);
- e.fail=false;e.click('setup-finish');await flush();assert.match(e.editor.shadowRoot.querySelector('.notice').textContent,/festgelegt/);assert.equal(e.editor.shadowRoot.querySelector('select'),null);
- const create=e.calls.find(c=>c.action==='create');assert.equal(create.config.days.length,3);assert(!Object.hasOwn(create.config,'replace_automation'));e.editor.remove();
+ e.fail=false;e.click('setup-finish');await flush();assert.match(e.editor.shadowRoot.querySelector('.notice').textContent,/festgelegt/);assert.equal(e.editor.shadowRoot.querySelectorAll('select').length,1);assert(e.editor.shadowRoot.querySelector('#wake-header-mode'));
+ const create=e.calls.find(c=>c.action==='create');assert.equal(create.config.days.length,1);assert(!Object.hasOwn(create.config,'replace_automation'));e.editor.remove();
 });
 test('administrator can configure existing day policies without changing fixed devices',async()=>{
  const e=setup();await flush();await e.music();for(let i=0;i<3;i++)e.click('setup-next');e.click('setup-finish');await flush();const binding=clone(e.created.binding);
- e.click('manage-days');e.click('day-edit','[data-kind="wochenende"]');e.change('day-name','Freie Tage');e.click('day-save');e.click('manage-days-cancel');
- e.click('manage-days');assert.match(e.editor.shadowRoot.querySelector('#setup-page')?.textContent||e.editor.shadowRoot.querySelector('#setup-body').textContent,/Wochenende/);
- e.click('day-edit','[data-kind="wochenende"]');e.change('day-name','Freie Tage');e.click('day-save');e.click('manage-days-save');await flush();
- assert.equal(e.created.days[1].name,'Freie Tage');assert.deepEqual(e.created.binding,binding);e.editor.remove();
+ const id=e.created.days[0].id;e.click('manage-days');e.click('day-edit',`[data-kind="${id}"]`);e.change('day-name','Freie Tage');e.click('day-save');e.click('manage-days-cancel');
+ e.click('manage-days');assert.match(e.editor.shadowRoot.querySelector('#setup-page')?.textContent||e.editor.shadowRoot.querySelector('#setup-body').textContent,/Frühdienst/);
+ e.click('day-edit',`[data-kind="${id}"]`);e.change('day-name','Freie Tage');e.change('day-calendar','calendar.school');e.change('day-calendar-mode','no_event');e.click('day-save');e.click('manage-days-save');await flush();
+ assert.equal(e.created.days[0].name,'Freie Tage');assert.equal(e.created.days[0].calendar_mode,'no_event');assert.deepEqual(e.created.binding,binding);
+ e.change('wake-header-mode','custom');e.change('wake-header-title','Mein Wecker');assert.equal(e.events.at(-1).header.title,'Mein Wecker');assert.deepEqual(e.created.binding,binding);e.editor.remove();
 });

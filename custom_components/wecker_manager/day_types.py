@@ -17,7 +17,10 @@ def legacy_days(calendar=""):
 
 
 def day_definitions(record):
-    return deepcopy(record.get("days", legacy_days(record["binding"].get("calendar_entity", ""))))
+    days = deepcopy(record.get("days", legacy_days(record["binding"].get("calendar_entity", ""))))
+    for day in days:
+        day.setdefault("calendar_mode", record["settings"]["types"].get(day["id"], {}).get("calendar_mode", calendar_mode(day["id"])))
+    return days
 
 
 def validate_days(raw):
@@ -26,7 +29,7 @@ def validate_days(raw):
     result, identifiers = [], set()
     fields = {"id", "name", "icon", "weekdays", "music_mode", "confirm_disable", "calendar_entity"}
     for item in raw:
-        if not isinstance(item, dict) or set(item) != fields:
+        if not isinstance(item, dict) or not fields <= set(item) or set(item) - fields - {"calendar_mode"}:
             raise AccessError("invalid_config", "Die Angaben für einen Tagestyp sind unvollständig.")
         if not isinstance(item["id"], str) or not DAY_ID.fullmatch(item["id"]) or item["id"] in identifiers:
             raise AccessError("invalid_config", "Jeder Tagestyp benötigt eine eigene Kennung.")
@@ -42,8 +45,11 @@ def validate_days(raw):
         calendar = item["calendar_entity"]
         if not isinstance(calendar, str) or calendar and not re.fullmatch(r"calendar\.[a-z0-9_]+", calendar):
             raise AccessError("invalid_config", "Bitte einen Kalender auswählen oder die Kalenderprüfung ausschalten.")
+        mode = item.get("calendar_mode", calendar_mode(item["id"]))
+        if mode not in ("event", "no_event"):
+            raise AccessError("invalid_config", "Bitte freie oder gebuchte Kalendertage auswählen.")
         identifiers.add(item["id"])
-        result.append({**deepcopy(item), "name": item["name"].strip(), "weekdays": sorted(weekdays)})
+        result.append({**deepcopy(item), "name": item["name"].strip(), "weekdays": sorted(weekdays), "calendar_mode": mode})
     return result
 
 
@@ -53,7 +59,7 @@ def calendar_mode(kind):
 
 def default_type(day):
     time = "09:00" if day["weekdays"] == [5, 6] else "06:00"
-    return {"time": time, "enabled": False, "music": day["music_mode"] == "always", "presets": [], "calendar_mode": calendar_mode(day["id"])}
+    return {"time": time, "enabled": False, "music": day["music_mode"] == "always", "presets": [], "calendar_mode": day.get("calendar_mode", calendar_mode(day["id"]))}
 
 
 def settings_for_days(record, days=None):
@@ -64,7 +70,7 @@ def settings_for_days(record, days=None):
     settings["types"] = {}
     for day in days:
         item = deepcopy(old_types.get(day["id"], default_type(day)))
-        item.setdefault("calendar_mode", calendar_mode(day["id"]))
+        item["calendar_mode"] = day.get("calendar_mode", item.get("calendar_mode", calendar_mode(day["id"])))
         if day["music_mode"] == "always":
             item["music"] = True
         settings["types"][day["id"]] = item

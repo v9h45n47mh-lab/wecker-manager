@@ -19,6 +19,15 @@ let browser;
   await page.setViewportSize({width,height:1100});await page.evaluate(d=>document.body.classList.toggle('dark',d),dark);
   assert.equal(await card().locator('.wake-symbol ha-icon').count(),8);
   assert.equal(await card().locator('#wake-header .row-text').count(),0);
+  assert.equal(await card().locator('[data-wake-calendar],.wake-calendar-rule').count(),0);
+  const styleDifferences=await page.evaluate(async()=>{
+   const ui=await import('/src/family-ui/1.4.1/family-ui.js'),host=document.createElement('div'),root=host.attachShadow({mode:'open'});
+   root.innerHTML=`<style>${ui.UI_CSS}</style>${ui.row({title:'Referenz',description:'Wochentage',trailing:ui.button({label:'Ausschalten',action:'reference'})})}${ui.filterButton({label:'05:55',selected:false})}${ui.toggle({label:'Musik',checked:false,iconOnly:true})}`;document.body.append(host);
+   const actual=wakeDemo.card.shadowRoot,differences=[],props=['fontFamily','fontSize','fontWeight','lineHeight','paddingTop','paddingBottom','color','backgroundColor'];
+   for(const [target,reference] of [['.wake-row .row-text strong','.row-text strong'],['[data-action="enabled"]','[data-action="reference"]'],['.wake-presets .filter-button','.filter-button'],['[data-action="music"]','.toggle']]){
+    const a=getComputedStyle(actual.querySelector(target)),b=getComputedStyle(root.querySelector(reference));for(const prop of props)if(a[prop]!==b[prop])differences.push(`${target}: ${prop} ${a[prop]} / ${b[prop]}`);
+   }host.remove();return differences;
+  });assert.deepEqual(styleDifferences,[],'shared components must match the unmodified UI Kit');
   const groups=await card().locator('.wake-presets').evaluateAll(groups=>groups.map(group=>({
    buttons:[...group.children].map(button=>{const box=button.getBoundingClientRect();return {left:box.left,right:box.right,top:box.top};}),
    last:group.getBoundingClientRect().right,
@@ -43,6 +52,14 @@ let browser;
  await action('time').first().click();await minutes.evaluate(el=>{el.scrollTop=0;el.dispatchEvent(new Event('scroll'));});await page.keyboard.press('Escape');assert.equal(await action('time').first().innerText(),'2:59');
  await action('preset').filter({hasText:'06:15'}).click();await page.waitForFunction(()=>wakeDemo.records.get(wakeDemo.config.alarm_id).settings.types.schultag.time==='06:15');
  await action('enabled').first().click();const confirm=card().locator('#wake-confirm-dialog');assert(await confirm.isVisible());await page.keyboard.press('Escape');assert(await action('enabled').first().innerText()==='Ausschalten');
+ await action('enabled').first().click();await confirm.locator('[data-action="confirm-disable"]').click();await confirm.waitFor({state:'hidden'});
+ await page.waitForFunction(()=>!wakeDemo.records.get(wakeDemo.config.alarm_id).settings.types.schultag.enabled);assert.equal(await action('enabled').first().innerText(),'Einschalten');
+ await action('enabled').first().click();await page.waitForFunction(()=>wakeDemo.records.get(wakeDemo.config.alarm_id).settings.types.schultag.enabled);
+ await page.evaluate(()=>{const record=wakeDemo.records.get(wakeDemo.config.alarm_id);record.settings.types.ferien.time='11:32';record.revision++;});
+ await action('enabled').nth(1).click();await page.waitForFunction(()=>!wakeDemo.records.get(wakeDemo.config.alarm_id).settings.types.wochenende.enabled);
+ assert.equal(await page.evaluate(()=>wakeDemo.records.get(wakeDemo.config.alarm_id).settings.types.ferien.time),'11:32');
+ await page.evaluate(()=>wakeDemo.card.setConfig(wakeDemo.config));await action('time').first().waitFor();assert.equal(await action('enabled').nth(1).innerText(),'Einschalten');
+ await action('enabled').nth(1).click();await page.waitForFunction(()=>wakeDemo.records.get(wakeDemo.config.alarm_id).settings.types.wochenende.enabled);
  await action('settings').click();const settings=card().locator('#wake-settings-dialog');
  const slider=settings.locator('#wake-volume');assert.equal(await slider.getAttribute('min'),'5');assert.equal(await slider.getAttribute('max'),'15');
  assert.equal(await settings.locator('select').count(),3);assert(await settings.locator('#wake-sunrise-setting').isVisible());assert.equal(await settings.locator('[data-ui-multi]').count(),0);
@@ -84,15 +101,20 @@ let browser;
   await page.setViewportSize({width:390,height:1000});await page.evaluate(()=>document.body.classList.remove('dark'));
  };
  assert.equal(await editor.locator('#wake-alarm-id,#wake-replace,#wake-owner').count(),0);
- assert.equal(await editor.locator('.setup-day-row').count(),3);
- await setupAction('day-edit','[data-kind="schultag"]').click();const dayDialog=editor.locator('#setup-day');
- assert.equal(await dayDialog.locator('#day-music').inputValue(),'always');assert.equal(await dayDialog.locator('#day-confirm').inputValue(),'confirm');
- await dayDialog.locator('#day-calendar').selectOption('calendar.school');
- assert(await dayDialog.getByText('Nur ganztägige Termine zählen.',{exact:false}).isVisible());
- await dayDialog.getByRole('button',{name:'Übernehmen',exact:true}).click();
+ assert.equal(await editor.locator('.setup-day-row').count(),0);assert(await setupAction('setup-next').isDisabled());await captureStep('empty');
+ const dayDialog=editor.locator('#setup-day');
+ const addDay=async(name,icon,weekdays,music='switchable',confirm='click',calendar='',mode='no_event')=>{
+  await setupAction('day-add').click();assert.equal(await dayDialog.locator('#day-name').inputValue(),'');assert.equal(await dayDialog.locator('#day-weekdays input:checked').count(),0);
+  await dayDialog.locator('#day-name').fill(name);await dayDialog.locator('#day-icon').selectOption(icon);for(const n of weekdays)await dayDialog.locator(`#day-weekdays input[value="${n}"]`).check();
+  await dayDialog.locator('#day-music').selectOption(music);await dayDialog.locator('#day-confirm').selectOption(confirm);await dayDialog.locator('#day-calendar').selectOption(calendar);
+  if(calendar){await dayDialog.locator('#day-calendar-mode').selectOption(mode);assert(await dayDialog.getByText('Nur ganztägige Termine zählen',{exact:false}).isVisible());}
+  await dayDialog.getByRole('button',{name:'Übernehmen',exact:true}).click();return page.evaluate(name=>wakeDemo.edited.days.find(d=>d.name===name).id,name);
+ };
+ const schoolId=await addDay('Schultag','mdi:school',[0,1,2,3,4],'always','confirm','calendar.school','no_event');
+ await addDay('Wochenende','mdi:weather-sunny',[5,6]);await addDay('Ferien / schulfrei','mdi:palm-tree',[0,1,2,3,4],'switchable','click','calendar.school','event');
  await setupAction('day-add').click();await dayDialog.locator('#day-name').fill('Frühdienst');
  await dayDialog.locator('#day-icon').selectOption('mdi:briefcase');await dayDialog.locator('#day-music').selectOption('always');await dayDialog.locator('#day-confirm').selectOption('confirm');await dayDialog.locator('#day-calendar').selectOption('calendar.work');
- await dayDialog.locator('#day-weekdays input[value="5"]').uncheck();await dayDialog.locator('#day-weekdays input[value="6"]').uncheck();
+ await dayDialog.locator('#day-calendar-mode').selectOption('no_event');for(const n of [0,1,2,3,4])await dayDialog.locator(`#day-weekdays input[value="${n}"]`).check();
  for(const width of [390,320])for(const dark of [false,true]){
   await page.setViewportSize({width,height:1000});await page.evaluate(d=>document.body.classList.toggle('dark',d),dark);
   assert(await dayDialog.evaluate(el=>el.getBoundingClientRect().right<=innerWidth));
@@ -119,7 +141,7 @@ let browser;
  await setupAction('setup-next').click();assert.equal(await page.evaluate(()=>wakeDemo.calls.filter(m=>m.action==='create').length),0);await captureStep(5);
  await setupAction('setup-back').click();assert.equal(await page.evaluate(()=>wakeDemo.edited.lights.length),2);await setupAction('setup-next').click();
  await setupAction('setup-finish').click();
- await editor.getByText('Musikkonto, Boxen, Rollläden und Lichter sind festgelegt.',{exact:false}).waitFor();assert.equal(await editor.locator('select:visible').count(),0);
+ await editor.getByText('Musikkonto, Boxen, Rollläden und Lichter sind festgelegt.',{exact:false}).waitFor();assert.equal(await editor.locator('select:visible').count(),1);assert(await editor.locator('#wake-header-mode').isVisible());
  assert.equal(await page.evaluate(()=>wakeDemo.calls.filter(m=>m.action==='create').length),1);
  const initialBinding=await page.evaluate(()=>JSON.stringify(wakeDemo.records.get('new_alarm').binding));
  await setupAction('manage-days').click();await setupAction('day-edit',`[data-kind="${customId}"]`).click();
@@ -129,22 +151,32 @@ let browser;
  assert.equal(await page.evaluate(()=>wakeDemo.records.get('new_alarm').days.find(d=>d.name==='Arbeit').music_mode),'switchable');
  await page.evaluate(()=>{document.querySelector('#editor').hidden=true;document.querySelector('#card').hidden=false;wakeDemo.card.setConfig(wakeDemo.edited);});
  await action('time').first().waitFor();assert.equal(await action('time').count(),4);
- assert.equal(await card().locator('[data-action="music"][data-kind="schultag"]').count(),0);
+ assert.equal(await card().locator(`[data-action="music"][data-kind="${schoolId}"]`).count(),0);
  assert(await card().locator(`[data-action="music"][data-kind="${customId}"]`).isVisible());
- const calendarRule=card().locator(`[data-wake-calendar="${customId}"]`);await calendarRule.selectOption('no_event');
- await page.waitForFunction(id=>wakeDemo.records.get('new_alarm').settings.types[id].calendar_mode==='no_event',customId);
+ assert.equal(await card().locator('[data-wake-calendar],.wake-calendar-rule').count(),0);
+ assert.equal(await page.evaluate(id=>wakeDemo.records.get('new_alarm').days.find(d=>d.id===id).calendar_mode,customId),'no_event');
  await card().locator(`[data-action="enabled"][data-kind="${customId}"]`).click();
  await page.waitForFunction(id=>wakeDemo.records.get('new_alarm').settings.types[id].enabled,customId);
  await card().locator(`[data-action="enabled"][data-kind="${customId}"]`).click();
  await card().locator('#wake-confirm-dialog[open]').waitFor();assert.equal(await card().locator('#wake-confirm-dialog-title').innerText(),'Arbeit ausschalten?');
  await page.keyboard.press('Escape');assert.equal(await page.evaluate(id=>wakeDemo.records.get('new_alarm').settings.types[id].enabled,customId),true);
+ await card().locator(`[data-action="enabled"][data-kind="${customId}"]`).click();await card().locator('#wake-confirm-dialog [data-action="confirm-disable"]').click();
+ await page.waitForFunction(id=>!wakeDemo.records.get('new_alarm').settings.types[id].enabled,customId);await card().locator('#wake-confirm-dialog').waitFor({state:'hidden'});
  for(const width of [1100,390,320])for(const dark of [false,true]){
   await page.setViewportSize({width,height:1100});await page.evaluate(d=>document.body.classList.toggle('dark',d),dark);
   assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
   await card().screenshot({path:path.join(screens,`custom-days-${width}-${dark?'dark':'light'}.png`)});
  }
+ for(const mode of ['today','custom','hidden']){
+  await page.evaluate(mode=>wakeDemo.card.setConfig({...wakeDemo.edited,header:{mode,title:'Mein Wecker'}}),mode);await action('time').first().waitFor();
+  if(mode==='hidden')assert(!(await card().locator('#wake-day-card').isVisible()));
+  else await card().locator('#wake-day').filter({hasText:mode==='today'?'Heute ist Schultag':'Mein Wecker'}).waitFor();
+  assert.equal(await action('settings').count(),1);await action('settings').click();await card().locator('#wake-settings-dialog[open]').waitFor();await page.keyboard.press('Escape');
+  await card().screenshot({path:path.join(screens,`header-${mode}.png`)});
+ }
  // Reproduce the supplied YAML: account selected, empty devices and a 1.1 catalog without automations.
  await page.goto(url+'?editor=1&setup_only=1&prefilled=1&missing_optional=1');
+ await setupAction('day-add').waitFor();await addDay('Schicht','mdi:briefcase',[0,2,4]);
  await setupAction('setup-next').click();await editor.locator('#wake-owner').waitFor();
  assert.equal(await editor.locator('#wake-owner').inputValue(),'max');
  assert.equal(await editor.locator('nav [data-action="navigate"]').count(),5);

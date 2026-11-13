@@ -7,7 +7,7 @@ import {parseHTML} from 'linkedom';
 const bundle=await readFile(new URL('../dist/wecker-manager-card.js',import.meta.url),'utf8');
 const clone=value=>JSON.parse(JSON.stringify(value));
 const flush=async()=>{for(let i=0;i<12;i++)await new Promise(resolve=>setImmediate(resolve));};
-function fixture({days,settings:override}={}){
+function fixture({days,settings:override,header}={}){
  const {window}=parseHTML('<!doctype html><html><body></body></html>'),{document}=window;
  window.HTMLElement.prototype.showModal=function(){this.open=true;};
  window.HTMLElement.prototype.close=function(){this.open=false;this.dispatchEvent(new window.Event('close'));};
@@ -15,6 +15,7 @@ function fixture({days,settings:override}={}){
  vm.runInContext("customElements.define('music-manager-alarm-row',class extends HTMLElement {setConfig(config){this.config=config}set hass(value){this._hass=value}});",context);
  vm.runInContext(bundle.replace(/^export /gm,''),context);
  const config={type:'custom:wecker-manager-card',alarm_id:'school',card_id:'card_1',owner_id:'max',speakers:['media_player.one','media_player.two'],covers:[{entity_id:'cover.one',position:60}],lights:[{entity_id:'light.one',brightness:70,color_mode:'keep'}],calendar_entity:'calendar.school',sunrise_minutes:5};
+ if(header)config.header=header;
  const settings={volume:10,sunrise_minutes:5,types:{schultag:{time:'06:12',enabled:true,music:true,presets:['05:55','06:15']},wochenende:{time:'09:00',enabled:true,music:false,presets:['09:00','10:00','11:00']},ferien:{time:'10:00',enabled:true,music:false,presets:['09:00','10:00','11:00']}}};
  if(override)Object.assign(settings,clone(override));
  const record={exists:true,binding:clone(config),settings:clone(settings),revision:1,...(days?{days:clone(days)}:{})},calls=[],listeners=new Set();delete record.binding.type;
@@ -23,9 +24,10 @@ function fixture({days,settings:override}={}){
  const hass=()=>({user:{id:user},connection,states:{},async callWS(msg){calls.push(clone(msg));
   if(user!=='max'&&msg.type==='wecker_manager/card')throw {code:'unauthorized',message:'Anderer Benutzer'};
   if(msg.type==='music_manager/alarm')return {owner:'Maximilian',source:'Box',selection:{title:'TOP STRIKER'},songs:[]};
-  if(msg.action==='day_info')return {date:'2026-11-14',kind:'wochenende',label:'Morgen ist Wochenende'};
+  if(msg.action==='day_info')return {date:'2026-11-14',kind:'wochenende',label:msg.day_offset===0?'Heute ist Schultag':'Morgen ist Wochenende'};
   if(msg.action==='get')return clone(record);
   if(msg.action==='update'){if(fail)throw {code:'save_failed',message:'Speichern fehlgeschlagen'};if(msg.revision!==record.revision)throw {code:'conflict',message:'Auf einem anderen Gerät geändert'};record.settings=clone(msg.settings);record.revision++;for(const callback of listeners)callback({data:{alarm_id:'school'}});return clone(record);}
+  if(msg.action==='set_enabled'){if(fail)throw {code:'save_failed',message:'Speichern fehlgeschlagen'};record.settings.types[msg.kind].enabled=msg.enabled;record.revision++;for(const callback of listeners)callback({data:{alarm_id:'school'}});return clone(record);}
   throw Error('Unbekannte Anfrage');
  }});
  const card=document.createElement('wecker-manager-card');card.setConfig(config);document.body.append(card);card.hass=hass();
@@ -97,14 +99,28 @@ test('custom day names and policies govern music switches and disable confirmati
  e.click('enabled','[data-kind="frei"]');assert(e.card.shadowRoot.getElementById('wake-confirm-dialog').open);
  assert.equal(e.card.shadowRoot.getElementById('wake-confirm-dialog-title').textContent,'Freie Tage ausschalten?');
  e.click('confirm-disable');await flush();assert.equal(e.record.settings.types.frei.enabled,false);
- assert.deepEqual(e.calls.filter(c=>c.action==='update').at(-1).confirm_disable,['frei']);e.card.remove();
+ assert.deepEqual(e.calls.filter(c=>c.action==='set_enabled').at(-1).confirm_disable,['frei']);e.card.remove();
 });
-test('calendar polarity is selected and saved directly in the card without rebinding the calendar',async()=>{
+test('calendar conditions are absent from the running card and weekdays remain visible',async()=>{
  const days=[{id:'arbeit',name:'Arbeit',icon:'mdi:briefcase',weekdays:[0,1,2,3,4],music_mode:'switchable',confirm_disable:false,calendar_entity:'calendar.school'}];
  const e=fixture({days,settings:{types:{arbeit:{time:'07:15',enabled:false,music:false,presets:[],calendar_mode:'event',sunrise_minutes:0}}}});await flush();
- const select=e.card.shadowRoot.querySelector('[data-wake-calendar="arbeit"]');assert(select);
- for(const option of select.options)option.toggleAttribute('selected',option.value==='no_event');
- select.dispatchEvent(new e.window.Event('change',{bubbles:true}));await flush();
- assert.equal(e.record.settings.types.arbeit.calendar_mode,'no_event');assert.equal(e.config.calendar_entity,'calendar.school');
- assert.match(e.card.shadowRoot.querySelector('.wake-calendar-rule').textContent,/Ganztägiger Termin vorhanden/);e.card.remove();
+ assert.equal(e.card.shadowRoot.querySelector('[data-wake-calendar],.wake-calendar-rule'),null);
+ assert.match(e.card.shadowRoot.querySelector('.wake-type .row-text small').textContent,/Mo, Di, Mi, Do, Fr/);e.card.remove();
+});
+test('switching one type does not resubmit unrelated settings and survives reload',async()=>{
+ const e=fixture();await flush();e.record.settings.types.ferien.time='11:32';e.record.settings.volume=14;e.record.revision++;
+ e.click('enabled','[data-kind="wochenende"]');await flush();
+ assert.equal(e.record.settings.types.wochenende.enabled,false);assert.equal(e.record.settings.types.ferien.time,'11:32');assert.equal(e.record.settings.volume,14);
+ const call=e.calls.find(c=>c.action==='set_enabled');assert.equal(call.kind,'wochenende');assert.equal(call.enabled,false);assert(!Object.hasOwn(call,'settings'));
+ e.card.setConfig(e.config);await flush();assert.equal(e.card.shadowRoot.querySelector('[data-action="enabled"][data-kind="wochenende"]').textContent,'Einschalten');e.card.remove();
+});
+test('header supports today, custom text and hiding without losing settings access',async()=>{
+ for(const header of [{mode:'today'},{mode:'custom',title:'Mein Wecker'},{mode:'hidden'}]){
+  const e=fixture({header});await flush();
+  assert.equal(e.card.shadowRoot.getElementById('wake-day-card').hidden,header.mode==='hidden');
+  if(header.mode==='today')assert.equal(e.card.shadowRoot.getElementById('wake-day').textContent,'Heute ist Schultag');
+  if(header.mode==='custom')assert.equal(e.card.shadowRoot.getElementById('wake-day').textContent,'Mein Wecker');
+  if(header.mode!=='today')assert.equal(e.calls.filter(c=>c.action==='day_info').length,0);
+  assert.equal(e.card.shadowRoot.querySelectorAll('[data-action="settings"]').length,1);e.click('settings');assert(e.card.shadowRoot.getElementById('wake-settings-dialog').open);e.card.remove();
+ }
 });
