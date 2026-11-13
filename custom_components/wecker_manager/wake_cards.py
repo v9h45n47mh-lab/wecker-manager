@@ -2,7 +2,7 @@
 
 import asyncio
 from copy import deepcopy
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 import logging
 import re
 from types import SimpleNamespace
@@ -20,6 +20,7 @@ from ..music_manager.access import AccessError, account_for, checked_account, so
 from ..music_manager.alarms import ALARM_ID, alarm_owner, apple_target, selection_from
 from ..music_manager.const import CONF_ACCOUNTS, CONF_ALARMS
 from .const import DOMAIN, MUSIC_DOMAIN
+from .day_types import legacy_days, day_definitions, validate_days, settings_for_days, calendar_mode
 from ..music_manager.helpers import music_assistant_client
 
 KEY = "wake_cards"
@@ -104,17 +105,19 @@ async def checked_record(hass, caller, alarm_id, card_id):
 
 
 def snapshot(hass, record):
-    settings = deepcopy(record["settings"])
+    settings = settings_for_days(record)
     settings["sunrise_minutes"] = sunrise_minutes(record)
+    for kind, item in settings["types"].items():
+        item["sunrise_minutes"] = sunrise_minutes(record, kind)
     return {"exists": True, "binding": deepcopy(record["binding"]),
-            "settings": settings, "revision": record["revision"],
+            "settings": settings, "days": day_definitions(record), "revision": record["revision"],
             "sunrise_available": has_dimmable_light(hass, record["binding"]),
             "error": runtime(hass)["errors"].get(record["binding"]["card_id"], "")}
 
 
-def sunrise_minutes(record):
+def sunrise_minutes(record, kind="schultag"):
     """Read editable settings, falling back to the original fixed card binding."""
-    return record["settings"].get("sunrise_minutes", record["binding"].get("sunrise_minutes", 0))
+    return record["settings"]["types"].get(kind, {}).get("sunrise_minutes", record["settings"].get("sunrise_minutes", record["binding"].get("sunrise_minutes", 0)) if kind == "schultag" else 0)
 
 
 def has_dimmable_light(hass, binding):
@@ -149,22 +152,28 @@ def default_settings(hass, alarm_id):
     return {"volume": 15, "types": types}
 
 
-def validate_settings(raw):
-    if not isinstance(raw, dict) or not {"volume", "types"} <= set(raw) or set(raw) - {"volume", "types", "sunrise_minutes"} or not isinstance(raw["types"], dict) or set(raw["types"]) != set(TYPES):
+def validate_settings(raw, days=None):
+    days = legacy_days() if days is None else days
+    day_map = {item["id"]: item for item in days}
+    if not isinstance(raw, dict) or not {"volume", "types"} <= set(raw) or set(raw) - {"volume", "types", "sunrise_minutes"} or not isinstance(raw["types"], dict) or set(raw["types"]) != set(day_map):
         raise AccessError("invalid_config", "Nur Weckzeiten, Schnellzeiten, Musikschalter, Lautstärke und Sonnenaufgang sind änderbar.")
     result = {"volume": integer(raw["volume"], 5, 15), "types": {}, "sunrise_minutes": integer(raw.get("sunrise_minutes", 0), 0, 30)}
-    for kind in TYPES:
+    for kind, day in day_map.items():
         item = raw["types"][kind]
-        if not isinstance(item, dict) or set(item) != {"time", "enabled", "music", "presets"}:
+        if not isinstance(item, dict) or not {"time", "enabled", "music", "presets"} <= set(item) or set(item) - {"time", "enabled", "music", "presets", "calendar_mode", "sunrise_minutes"}:
             raise AccessError("invalid_config", "Die Weckereinstellungen sind unvollständig.")
         presets = item["presets"]
         if not isinstance(item["time"], str) or not TIME.fullmatch(item["time"]) or type(item["enabled"]) is not bool or type(item["music"]) is not bool:
             raise AccessError("invalid_config", "Bitte gültige Weckzeiten im Format HH:MM verwenden.")
         if not isinstance(presets, list) or len(presets) > 3 or any(not isinstance(t, str) or not TIME.fullmatch(t) for t in presets) or len(set(presets)) != len(presets):
             raise AccessError("invalid_config", "Je Weckertyp sind bis zu drei unterschiedliche Schnellzeiten erlaubt.")
-        if kind == "schultag" and not item["music"]:
-            raise AccessError("invalid_config", "Der Schultagswecker verwendet immer Musik.")
-        result["types"][kind] = deepcopy(item)
+        if day["music_mode"] == "always" and not item["music"]:
+            raise AccessError("invalid_config", f"{day['name']} verwendet immer Musik.")
+        if item.get("calendar_mode", calendar_mode(kind)) not in ("event", "no_event"):
+            raise AccessError("invalid_config", "Bitte Termin vorhanden oder kein ganztägiger Termin auswählen.")
+        result["types"][kind] = {**deepcopy(item), "calendar_mode": item.get("calendar_mode", calendar_mode(kind))}
+        if "sunrise_minutes" in item:
+            result["types"][kind]["sunrise_minutes"] = integer(item["sunrise_minutes"], 0, 30)
     return result
 
 
@@ -198,7 +207,7 @@ async def catalog(hass, caller, owner_id=None):
 
 async def create_card(hass, caller, config):
     require_admin(caller)
-    if not isinstance(config, dict) or set(config) - {"card_id", "alarm_id", "owner_id", "speakers", "covers", "lights", "calendar_entity", "sunrise_minutes", "replace_automation"}:
+    if not isinstance(config, dict) or set(config) - {"card_id", "alarm_id", "owner_id", "speakers", "covers", "lights", "calendar_entity", "sunrise_minutes", "replace_automation", "days"}:
         raise AccessError("invalid_config", "Die Kartenkonfiguration ist ungültig.")
     card_id, alarm_id = identifier(config.get("card_id")), identifier(config.get("alarm_id"))
     entry = entry_for(hass)
@@ -265,8 +274,17 @@ async def create_card(hass, caller, config):
         # A recreated card replaces the old card for this alarm ID, so only one executes.
         settings = deepcopy(existing["settings"]) if existing else default_settings(hass, alarm_id)
         settings["sunrise_minutes"] = (sunrise_minutes(existing) if existing else sunrise) if checked_lights else 0
+        days = validate_days(config.get("days", day_definitions(existing) if existing else legacy_days(calendar)))
+        for day in days:
+            if day["calendar_entity"]:
+                allowed_entity(hass, owner, caller, day["calendar_entity"], "calendar", control=False)
+        settings = settings_for_days({"binding": binding, "settings": settings}, days)
+        if not has_dimmable_light(hass, binding):
+            settings["sunrise_minutes"] = 0
+            for item in settings["types"].values():
+                item["sunrise_minutes"] = 0
         retired = list(existing.get("retired_card_ids", [])) + [existing["binding"]["card_id"]] if existing else []
-        record = {"binding": binding, "account": deepcopy(account), "settings": settings, "revision": 1,
+        record = {"binding": binding, "account": deepcopy(account), "days": days, "settings": settings, "revision": 1,
                   "runs": deepcopy(existing.get("runs", {})) if existing else {}, "retired_card_ids": retired,
                   "stops": deepcopy(existing.get("stops", [])) if existing else []}
         alarms = [a for a in music_entry.options.get(CONF_ALARMS, []) if a.get("alarm_id") != alarm_id]
@@ -279,59 +297,154 @@ async def create_card(hass, caller, config):
         return snapshot(hass, record)
 
 
-async def update_card(hass, caller, alarm_id, card_id, settings, revision):
+async def update_card(hass, caller, alarm_id, card_id, settings, revision, confirm_disable=None):
     async with runtime(hass)["lock"]:
         entry, record, _ = await checked_record(hass, caller, alarm_id, card_id)
         if type(revision) is not int or revision != record["revision"]:
             raise AccessError("conflict", "Die Einstellungen wurden auf einem anderen Gerät geändert. Bitte erneut laden.")
         if isinstance(settings, dict) and "sunrise_minutes" not in settings:
             settings = {**settings, "sunrise_minutes": sunrise_minutes(record)}
-        validated = validate_settings(settings)
-        if validated["sunrise_minutes"] and validated["sunrise_minutes"] != sunrise_minutes(record) and not has_dimmable_light(hass, record["binding"]):
+        if isinstance(settings, dict):
+            settings = deepcopy(settings)
+            school = settings.get("types", {}).get("schultag")
+            if isinstance(school, dict) and settings.get("sunrise_minutes", sunrise_minutes(record)) != sunrise_minutes(record) and school.get("sunrise_minutes", sunrise_minutes(record)) == sunrise_minutes(record):
+                school["sunrise_minutes"] = settings["sunrise_minutes"]
+        validated = validate_settings(settings, day_definitions(record))
+        if "schultag" in validated["types"]:
+            validated["sunrise_minutes"] = validated["types"]["schultag"].get("sunrise_minutes", validated["sunrise_minutes"])
+        check_disable_confirmation(record, validated["types"], confirm_disable)
+        changed_sunrise = any(item.get("sunrise_minutes", validated["sunrise_minutes"] if kind == "schultag" else 0) not in (0, sunrise_minutes(record, kind)) for kind, item in validated["types"].items())
+        if changed_sunrise and not has_dimmable_light(hass, record["binding"]):
             raise AccessError("invalid_config", "Für den Sonnenaufgang ist mindestens eine fest zugeordnete dimmbare Lampe erforderlich.")
         updated = {**record, "settings": validated, "revision": record["revision"] + 1}
         save_record(hass, entry, alarm_id, updated)
         return snapshot(hass, updated)
 
 
-async def tomorrow_info(hass, caller, alarm_id, card_id):
-    """Describe tomorrow from actual calendar events in the HA time zone."""
-    _, record, owner = await checked_record(hass, caller, alarm_id, card_id)
-    start = (dt_util.as_local(dt_util.utcnow()) + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
-    result = {"date": start.date().isoformat(), "kind": "wochenende" if start.weekday() >= 5 else "schultag"}
-    calendar_id = record["binding"]["calendar_entity"]
-    if start.weekday() < 5 and calendar_id:
-        # Check both users before asking for calendar data; never return events.
-        allowed_entity(hass, owner, caller, calendar_id, "calendar", control=False)
-        end = start + timedelta(days=1)
+def check_disable_confirmation(record, next_types, confirmed):
+    confirmed = [] if confirmed is None else confirmed
+    if not isinstance(confirmed, list) or any(not isinstance(item, str) for item in confirmed):
+        raise AccessError("invalid_config", "Die Ausschaltbestätigung ist ungültig.")
+    for day in day_definitions(record):
+        old = record["settings"]["types"].get(day["id"], {})
+        if day["confirm_disable"] and old.get("enabled") and not next_types.get(day["id"], {}).get("enabled") and day["id"] not in confirmed:
+            raise AccessError("confirmation_required", f"{day['name']} bitte ausdrücklich zum Ausschalten bestätigen.")
+
+
+async def configure_days(hass, caller, alarm_id, card_id, raw_days, revision, confirm_disable=None):
+    require_admin(caller)
+    days = validate_days(raw_days)
+    async with runtime(hass)["lock"]:
+        entry, record, owner = await checked_record(hass, caller, alarm_id, card_id)
+        if type(revision) is not int or revision != record["revision"]:
+            raise AccessError("conflict", "Die Einstellungen wurden auf einem anderen Gerät geändert. Bitte erneut laden.")
+        for day in days:
+            if day["calendar_entity"]:
+                allowed_entity(hass, owner, caller, day["calendar_entity"], "calendar", control=False)
+        settings = settings_for_days(record, days)
+        check_disable_confirmation(record, settings["types"], confirm_disable)
+        # A legacy holiday alarm without a calendar never executed. Keep it off
+        # when an administrator first adopts explicit day policies.
+        if "days" not in record and not record["binding"].get("calendar_entity") and "ferien" in settings["types"]:
+            settings["types"]["ferien"]["enabled"] = False
+        updated = {**record, "days": days, "settings": settings, "revision": record["revision"] + 1}
+        save_record(hass, entry, alarm_id, updated)
+        return snapshot(hass, updated)
+
+
+def calendar_key(owner_id, entity_id, when):
+    return owner_id, entity_id, when.date().isoformat()
+
+
+async def calendar_day(hass, owner, caller, entity_id, when, *, force=False):
+    state = allowed_entity(hass, owner, caller, entity_id, "calendar", control=False)
+    key = calendar_key(owner.id, entity_id, when)
+    cache = runtime(hass).setdefault("calendar_days", {})
+    now = dt_util.utcnow()
+    token = str(getattr(state, "last_updated", state.state))
+    old = cache.get(key)
+    if state.state not in ("on", "off"):
+        cache[key] = {"error": True}
+        raise AccessError("calendar_unavailable", "Ein Kalender ist nicht erreichbar; die zugehörigen Tagestypen sind pausiert.")
+    if not force and old and not old.get("error") and old.get("token") == token and (now - old["checked"]).total_seconds() < 300:
+        return old["event"]
+    start = when.replace(hour=0, minute=0, second=0, microsecond=0)
+    try:
+        async with asyncio.timeout(10):
+            response = await hass.services.async_call("calendar", "get_events", {
+                "entity_id": entity_id, "start_date_time": start.isoformat(), "end_date_time": (start + timedelta(days=1)).isoformat(),
+            }, blocking=True, return_response=True, context=Context(user_id=owner.id))
+        events = response[entity_id]["events"]
+        if not isinstance(events, list):
+            raise ValueError("Invalid calendar response")
+        found = False
+        for event in events:
+            first, last = event.get("start"), event.get("end")
+            # HA represents actual all-day events by date-only boundaries.
+            # A midnight-to-midnight timed event is deliberately ignored too.
+            if isinstance(first, str) and isinstance(last, str) and re.fullmatch(r"\d{4}-\d{2}-\d{2}", first) and re.fullmatch(r"\d{4}-\d{2}-\d{2}", last):
+                if date.fromisoformat(first) <= when.date() < date.fromisoformat(last):
+                    found = True
+        cache[key] = {"event": found, "checked": now, "token": token}
+        # Keep only a small range of dates; no event text is retained.
+        for expired in list(cache):
+            if expired[2] < (when.date() - timedelta(days=2)).isoformat():
+                cache.pop(expired, None)
+        return found
+    except Exception as err:
+        cache[key] = {"error": True}
+        raise AccessError("calendar_unavailable", "Ein Kalender ist nicht erreichbar; die zugehörigen Tagestypen sind pausiert.") from err
+
+
+async def prepare_calendars(hass, record, owner, when, caller=None, *, force=False, include_disabled=False):
+    entities = {day["calendar_entity"] for day in day_definitions(record)
+                if day["calendar_entity"] and when.weekday() in day["weekdays"]
+                and (include_disabled or record["settings"]["types"].get(day["id"], {}).get("enabled"))}
+    async def load(entity_id):
         try:
-            async with asyncio.timeout(10):
-                response = await hass.services.async_call("calendar", "get_events", {
-                    "entity_id": calendar_id, "start_date_time": start.isoformat(), "end_date_time": end.isoformat(),
-                }, blocking=True, return_response=True, context=Context(user_id=caller.id))
-            events = response[calendar_id]["events"]
-            if not isinstance(events, list):
-                raise ValueError("Invalid calendar response")
-            def moment(raw):
-                value_ = datetime.fromisoformat(raw.replace("Z", "+00:00"))
-                return value_ if value_.tzinfo else value_.replace(tzinfo=start.tzinfo)
-            if any(moment(event["start"]) < end and moment(event["end"]) > start for event in events):
-                result["kind"] = "ferien"
-        except Exception:
-            return {"date": result["date"], "kind": None, "label": "Morgen: Kalender nicht erreichbar"}
-    result["label"] = {"schultag": "Morgen ist Schultag", "wochenende": "Morgen ist Wochenende", "ferien": "Morgen ist schulfrei"}[result["kind"]]
-    return result
+            await calendar_day(hass, owner, caller, entity_id, when, force=force)
+        except AccessError as err:
+            runtime(hass).setdefault("calendar_days", {})[calendar_key(owner.id, entity_id, when)] = {"error": True}
+            return err
+    return [error for error in await asyncio.gather(*(load(entity) for entity in entities)) if error]
+
+
+async def tomorrow_info(hass, caller, alarm_id, card_id):
+    _, record, owner = await checked_record(hass, caller, alarm_id, card_id)
+    when = (dt_util.as_local(dt_util.utcnow()) + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
+    await prepare_calendars(hass, record, owner, when, caller, include_disabled=True)
+    matches, failed = [], False
+    for day in day_definitions(record):
+        try:
+            if day_matches(hass, record, day["id"], when):
+                matches.append(day)
+        except AccessError:
+            failed = True
+    if not matches:
+        label = "Morgen: Kalender nicht erreichbar" if failed else "Morgen: kein passender Tagestyp"
+    elif len(matches) == 1:
+        day = matches[0]
+        defaults = {"schultag": "Schultag", "wochenende": "Wochenende", "ferien": "Ferien / schulfrei"}
+        label = ("Morgen ist schulfrei" if day["id"] == "ferien" else "Morgen ist " + day["name"]) if day["name"] == defaults.get(day["id"]) else "Morgen: " + day["name"]
+    else:
+        label = "Morgen: " + ", ".join(day["name"] for day in matches)
+    if matches and failed:
+        label += " · Kalenderprüfung offen"
+    return {"date": when.date().isoformat(), "kind": matches[0]["id"] if len(matches) == 1 else None,
+            "types": [day["id"] for day in matches], "label": label}
 
 
 @websocket_api.websocket_command({
     vol.Required("type"): "wecker_manager/card",
-    vol.Required("action"): vol.In(["catalog", "get", "create", "update", "day_info"]),
+    vol.Required("action"): vol.In(["catalog", "get", "create", "update", "day_info", "configure_days"]),
     vol.Optional("alarm_id"): str,
     vol.Optional("card_id"): str,
     vol.Optional("owner_id"): str,
     vol.Optional("config"): dict,
     vol.Optional("settings"): dict,
     vol.Optional("revision"): int,
+    vol.Optional("days"): list,
+    vol.Optional("confirm_disable"): list,
 })
 @websocket_api.async_response
 async def websocket_wake_card(hass, connection, msg):
@@ -342,10 +455,12 @@ async def websocket_wake_card(hass, connection, msg):
                 result = await catalog(hass, connection.user, msg.get("owner_id"))
             elif action == "day_info":
                 result = await tomorrow_info(hass, connection.user, msg.get("alarm_id"), msg.get("card_id"))
+            elif action == "configure_days":
+                result = await configure_days(hass, connection.user, msg.get("alarm_id"), msg.get("card_id"), msg.get("days"), msg.get("revision"), msg.get("confirm_disable"))
             elif action == "create":
                 result = await create_card(hass, connection.user, msg.get("config"))
             elif action == "update":
-                result = await update_card(hass, connection.user, msg.get("alarm_id"), msg.get("card_id"), msg.get("settings"), msg.get("revision"))
+                result = await update_card(hass, connection.user, msg.get("alarm_id"), msg.get("card_id"), msg.get("settings"), msg.get("revision"), msg.get("confirm_disable"))
             else:
                 alarm_id, card_id = identifier(msg.get("alarm_id")), identifier(msg.get("card_id"))
                 entry = entry_for(hass)
@@ -365,35 +480,39 @@ async def websocket_wake_card(hass, connection, msg):
         connection.send_error(msg["id"], "wake_card_error", "Die Weckerkarte konnte nicht geladen oder gespeichert werden. Bitte Verbindung und Geräte prüfen.")
 
 
-def day_matches(hass, binding, kind, when):
-    weekday = when.weekday() < 5
-    if kind == "wochenende":
-        return not weekday
-    if not weekday:
+def day_matches(hass, record, kind, when):
+    day = next((item for item in day_definitions(record) if item["id"] == kind), None)
+    if not day or when.weekday() not in day["weekdays"]:
         return False
-    calendar_id = binding["calendar_entity"]
-    if not calendar_id:
-        return kind == "schultag"
-    calendar = hass.states.get(calendar_id)
-    if not calendar or calendar.state not in ("on", "off"):
-        raise AccessError("calendar_unavailable", "Der Schulfrei-Kalender ist nicht erreichbar; die Werktagswecker sind pausiert.")
-    return (calendar.state == "on") == (kind == "ferien")
+    entity_id = day["calendar_entity"]
+    if not entity_id:
+        return not ("days" not in record and kind == "ferien")
+    cached = runtime(hass).setdefault("calendar_days", {}).get(calendar_key(record["binding"]["owner_id"], entity_id, when))
+    if not cached or cached.get("error"):
+        raise AccessError("calendar_unavailable", f"Kalender für {day['name']} nicht erreichbar; dieser Tagestyp ist pausiert.")
+    settings = record["settings"]["types"][kind]
+    return cached["event"] == (settings.get("calendar_mode", calendar_mode(kind)) == "event")
 
 
-def due_phases(hass, record, when):
-    binding = record["binding"]
-    sunrise = sunrise_minutes(record)
+def due_phases(hass, record, when, errors=None):
     result = []
-    for kind, settings in record["settings"]["types"].items():
-        if not settings["enabled"]:
+    for day in day_definitions(record):
+        kind = day["id"]
+        settings = record["settings"]["types"].get(kind, {})
+        if not settings.get("enabled"):
             continue
-        if settings["time"] == when.strftime("%H:%M") and day_matches(hass, binding, kind, when):
-            result.append((kind, "wake", when.date().isoformat()))
-        if kind == "schultag" and binding["lights"] and sunrise:
-            target = when + timedelta(minutes=sunrise)
-            # The calendar's current state describes today; don't guess tomorrow.
-            if target.date() == when.date() and settings["time"] == target.strftime("%H:%M") and day_matches(hass, binding, kind, target):
-                result.append((kind, "sunrise", target.date().isoformat()))
+        try:
+            if settings["time"] == when.strftime("%H:%M") and day_matches(hass, record, kind, when):
+                result.append((kind, "wake", when.date().isoformat()))
+            sunrise = sunrise_minutes(record, kind)
+            if record["binding"]["lights"] and sunrise:
+                target = when + timedelta(minutes=sunrise)
+                if target.date() == when.date() and settings["time"] == target.strftime("%H:%M") and day_matches(hass, record, kind, target):
+                    result.append((kind, "sunrise", target.date().isoformat()))
+        except AccessError as err:
+            if errors is None:
+                raise
+            errors.append(str(err))
     return result
 
 
@@ -442,7 +561,7 @@ async def execute(hass, entry, record, owner, kind, phase):
             await asyncio.sleep(1)
             # Recheck device permissions after the delayed second command.
             allowed_entity(hass, owner, None, item["entity_id"], "light")
-            await hass.services.async_call("light", "turn_on", {**data, "brightness_pct": item["brightness"], "transition": sunrise_minutes(record) * 60 - 1}, blocking=True, context=context)
+            await hass.services.async_call("light", "turn_on", {**data, "brightness_pct": item["brightness"], "transition": sunrise_minutes(record, kind) * 60 - 1}, blocking=True, context=context)
 
     async def cover_action(item):
         allowed_entity(hass, owner, None, item["entity_id"], "cover")
@@ -498,11 +617,15 @@ async def tick(hass, when):
         try:
             _, record, owner = await checked_record(hass, None, alarm_id, card_id)
             await stop_due(hass, entry, alarm_id, record, owner)
-            for kind, phase, date in due_phases(hass, record, when):
+            candidates = any(item.get("enabled") and (item["time"] == when.strftime("%H:%M") or sunrise_minutes(record, kind) and item["time"] == (when + timedelta(minutes=sunrise_minutes(record, kind))).strftime("%H:%M")) for kind, item in record["settings"]["types"].items())
+            if candidates:
+                await prepare_calendars(hass, record, owner, when, force=True)
+            calendar_errors = []
+            for kind, phase, date in due_phases(hass, record, when, calendar_errors):
                 run_id = f"{date}/{kind}/{phase}"
                 async with runtime(hass)["lock"]:
                     _, current, owner = await checked_record(hass, None, alarm_id, card_id)
-                    if run_id in current.get("runs", {}) or (kind, phase, date) not in due_phases(hass, current, when):
+                    if run_id in current.get("runs", {}) or (kind, phase, date) not in due_phases(hass, current, when, calendar_errors):
                         continue
                     runs = {key: val for key, val in current.get("runs", {}).items() if key[:10] >= (when.date() - timedelta(days=2)).isoformat()}
                     runs[run_id] = True
@@ -510,6 +633,9 @@ async def tick(hass, when):
                     save_record(hass, entry, alarm_id, current, notify=False)
                 await execute(hass, entry, current, owner, kind, phase)
                 runtime(hass)["errors"].pop(card_id, None)
+                hass.bus.async_fire(EVENT, {"alarm_id": alarm_id})
+            if calendar_errors:
+                runtime(hass)["errors"][card_id] = " ".join(dict.fromkeys(calendar_errors))
                 hass.bus.async_fire(EVENT, {"alarm_id": alarm_id})
         except AccessError as err:
             runtime(hass)["errors"][card_id] = str(err)
