@@ -12,11 +12,20 @@ COMMON = ("name", "icon", "weekdays", "calendar_entity", "calendar_mode")
 
 
 def common(day):
-    return {key: deepcopy(day[key]) for key in COMMON}
+    result = {key: deepcopy(day[key]) for key in COMMON}
+    result["name"] = result["name"].strip()
+    result["weekdays"] = sorted(result["weekdays"])
+    if not result["calendar_entity"]:
+        result["calendar_mode"] = "no_event"
+    return result
+
+
+def signature(day):
+    return json.dumps(common(day), sort_keys=True, ensure_ascii=False)
 
 
 def template_id(day):
-    value = json.dumps(common(day), sort_keys=True, ensure_ascii=False)
+    value = signature(day)
     return "day_" + hashlib.sha256(value.encode()).hexdigest()[:24]
 
 
@@ -24,21 +33,35 @@ def migrate(options):
     """Link existing definitions without changing local IDs, times or policies."""
     templates = deepcopy(options.get(LIBRARY, {}))
     cards = deepcopy(options.get("wake_cards", {}))
+    by_rule, aliases = {}, {}
+    for key, template in list(templates.items()):
+        rule = signature(template)
+        if rule in by_rule:
+            canonical = by_rule[rule]
+            aliases[key] = canonical
+            templates[canonical]["revision"] = max(templates[canonical]["revision"], template["revision"]) + 1
+            del templates[key]
+        else:
+            by_rule[rule] = key
     changed = []
     for alarm_id, record in cards.items():
         days = day_definitions(record)
         modified = False
         for day in days:
-            key = day.get("template_id")
+            old = deepcopy(day)
+            key = aliases.get(day.get("template_id"), day.get("template_id"))
             if not key:
-                key = template_id(day)
+                key = by_rule.get(signature(day), template_id(day))
                 if key in templates and common(templates[key]) != common(day):
                     key = "day_" + uuid.uuid4().hex
                 day["template_id"] = key
                 modified = True
             if key not in templates:
                 templates[key] = {"id": key, **common(day), "revision": 1}
+                by_rule[signature(day)] = key
+            day["template_id"] = key
             day["template_revision"] = templates[key]["revision"]
+            modified = modified or day != old
         if modified:
             # Keep a legacy holiday without a calendar paused on first migration.
             settings = settings_for_days(record, days)
@@ -53,8 +76,18 @@ def apply(templates, cards, alarm_id, record, days):
     """Stage shared edits and every linked card as one configuration write."""
     templates, cards, days = deepcopy(templates), deepcopy(cards), deepcopy(days)
     edits = {}
+    used = set()
     for day in days:
-        key = day.get("template_id") or template_id(day)
+        matching = next((key for key, item in templates.items() if signature(item) == signature(day)), None)
+        key = day.get("template_id") or matching or template_id(day)
+        if key not in templates and day.get("template_id"):
+            if matching:
+                key = matching
+            else:
+                raise AccessError("conflict", "Dieser gemeinsame Tagestyp wurde entfernt oder zusammengeführt. Bitte erneut laden.")
+        if key in used:
+            raise AccessError("invalid_config", "Ein gemeinsamer Tagestyp kann pro Karte nur einmal übernommen werden.")
+        used.add(key)
         previous = templates.get(key)
         if previous and common(previous) != common(day):
             if not day.get("template_id"):
@@ -85,4 +118,6 @@ def apply(templates, cards, alarm_id, record, days):
         if modified:
             other.update(days=other_days, settings=settings_for_days(other, other_days), revision=other["revision"] + 1)
             changed.add(other_id)
+    templates, cards, merged = migrate({LIBRARY: templates, "wake_cards": cards})
+    changed.update(merged)
     return templates, cards, changed

@@ -6,22 +6,28 @@ import {parseHTML} from 'linkedom';
 const bundle=await readFile(new URL('../dist/wecker-manager-card.js',import.meta.url),'utf8');
 const clone=value=>JSON.parse(JSON.stringify(value));
 const flush=async()=>{for(let i=0;i<12;i++)await new Promise(resolve=>setImmediate(resolve));};
-function setup({config={},catalog:override}={}){
+function setup({config={},catalog:override,manager=false}={}){
  const {window}=parseHTML('<!doctype html><html><body></body></html>'),{document}=window;
  window.HTMLElement.prototype.showModal=function(){this.open=true;};
  window.HTMLElement.prototype.close=function(){this.open=false;this.dispatchEvent(new window.Event('close'));};
  const context=vm.createContext({window,document,HTMLElement:window.HTMLElement,customElements:window.customElements,MutationObserver:window.MutationObserver,CustomEvent:window.CustomEvent,queueMicrotask,console,setTimeout,clearTimeout,URL,Promise});
  vm.runInContext(bundle,context);
  const item=(id,label,attributes={})=>({id,label,description:id,attributes});
- const catalog={accounts:[{value:'max',label:'Maximilian'},{value:'paul',label:'Paul'}],speakers:[item('media_player.max','Maximilian'),item('media_player.second','Ankleide')],covers:[item('cover.one','Rollladen',{supported_features:4})],lights:[item('light.one','Deckenlicht',{supported_color_modes:['color_temp'],min_color_temp_kelvin:3000,max_color_temp_kelvin:6500})],calendars:[item('calendar.school','Schulfrei')],shared_days:[]};
+ const catalog={accounts:[{value:'max',label:'Maximilian'},{value:'paul',label:'Paul'}],speakers:[item('media_player.max','Maximilian'),item('media_player.second','Ankleide')],covers:[item('cover.one','Rollladen',{supported_features:4})],lights:[item('light.one','Deckenlicht',{supported_color_modes:['color_temp'],min_color_temp_kelvin:3000,max_color_temp_kelvin:6500})],calendars:[item('calendar.school','Schulfrei')],shared_days:[],hue_scenes:[]};
  if(override)Object.assign(catalog,override);
  const calls=[],events=[];let created=null,fail=false;
- const editor=document.createElement('wecker-manager-card-editor');
+ const editor=document.createElement(manager?'wecker-manager-day-manager':'wecker-manager-card-editor');
  editor.setConfig({type:'custom:wecker-manager-card',alarm_id:'new_alarm',card_id:'new_card',owner_id:'',speakers:[],covers:[],lights:[],calendar_entity:'',sunrise_minutes:0,...config});
  editor.addEventListener('config-changed',e=>events.push(clone(e.detail.config)));
  editor.hass={user:{id:'admin',is_admin:true},connection:{async subscribeEvents(){return ()=>{}}},states:{},async callWS(msg){calls.push(clone(msg));
   if(msg.action==='get')return clone(created||{exists:false,can_create:true});
   if(msg.action==='catalog')return clone(catalog);
+  if(msg.action==='save_day_template'){
+   if(fail)throw Error('Speichern fehlgeschlagen');const index=catalog.shared_days.findIndex(day=>day.id===msg.day_template.id),old=catalog.shared_days[index];
+   if(old&&old.revision!==msg.revision)throw {code:'conflict',message:'Auf einem anderen Gerät geändert'};
+   const day={...clone(msg.day_template),revision:msg.revision+1,uses:old?.uses||0};if(index<0)catalog.shared_days.push(day);else catalog.shared_days[index]=day;return {saved:true,template:clone(day)};
+  }
+  if(msg.action==='delete_day_template'){catalog.shared_days=catalog.shared_days.filter(day=>day.id!==msg.template_id);return {deleted:true};}
   if(msg.action==='create'){
    if(fail)throw Error('Box ist offline');const {days,name,...binding}=msg.config;
    created={exists:true,binding:clone(binding),days:clone(days),revision:1,settings:{types:Object.fromEntries(days.map(d=>[d.id,{enabled:false,time:'06:00',music:d.music_mode==='always',presets:[]}]))}};return clone(created);
@@ -36,7 +42,7 @@ function setup({config={},catalog:override}={}){
  const weekdays=values=>{for(const input of editor.shadowRoot.querySelectorAll('#day-weekdays input')){input.checked=values.includes(Number(input.value));input.toggleAttribute('checked',input.checked);input.dispatchEvent(new window.Event('change',{bubbles:true}));}};
  const addDay=(name='Frühdienst')=>{click('day-add');change('day-name',name);weekdays([0,1,2,3,4]);click('day-save');return events.at(-1).days.at(-1).id;};
  const music=async()=>{if(!editor._config.days.length)addDay();click('setup-next');change('wake-owner','max');await flush();await pick('speakers',['media_player.max']);};
- return {editor,calls,events,click,change,pick,music,addDay,weekdays,window,get created(){return created},set fail(v){fail=v}};
+ return {editor,catalog,calls,events,click,change,pick,music,addDay,weekdays,window,get created(){return created},set fail(v){fail=v}};
 }
 test('configuration starts empty and requires explicitly chosen names and weekdays',async()=>{
  const e=setup();await flush();
@@ -105,4 +111,36 @@ test('an existing shared school day can be reused with independent local music c
  const e=setup({catalog:{shared_days:[shared]}});await flush();e.change('setup-shared-day',shared.id);e.click('day-use');
  assert.match(e.editor.shadowRoot.querySelector('#setup-day-body').textContent,/anderen Karten/);e.change('day-music','always');e.change('day-confirm','confirm');e.click('day-save');
  const day=e.events.at(-1).days[0];assert.equal(day.name,'Schultag');assert.equal(day.template_id,shared.id);assert.equal(day.template_revision,2);assert.equal(day.music_mode,'always');assert.notEqual(day.id,shared.id);assert.deepEqual(day.weekdays,[0,1,2,3,4]);e.editor.remove();
+});
+
+test('adopting the same named legacy day updates its original ID instead of inserting a second alarm',async()=>{
+ const shared={id:'shared',name:'Schultag',icon:'mdi:school',weekdays:[0,1,2,3,4],calendar_entity:'',calendar_mode:'no_event',revision:2,uses:1};
+ const legacy={...shared,id:'school_local',music_mode:'always',confirm_disable:true};delete legacy.revision;delete legacy.uses;
+ const e=setup({config:{days:[legacy]},catalog:{shared_days:[shared,{...shared,id:'duplicate',calendar_mode:'event'}]}});await flush();
+ assert.equal(e.editor.shadowRoot.querySelector('#setup-shared-day').options.length,2);
+ e.change('setup-shared-day','duplicate');e.click('day-use');e.click('day-save');
+ assert.equal(e.events.at(-1).days.length,1);assert.equal(e.events.at(-1).days[0].id,'school_local');assert.equal(e.events.at(-1).days[0].music_mode,'always');assert.equal(e.events.at(-1).days[0].confirm_disable,true);
+ assert.equal(e.editor.shadowRoot.querySelector('#setup-shared-day'),null);
+ e.click('day-edit','[data-kind="school_local"]');e.click('day-save');assert.equal(e.events.at(-1).days.length,1);e.editor.remove();
+});
+test('central day management saves common rules only, retains failed drafts, and deletes unused types with confirmation',async()=>{
+ const used={id:'shared',name:'Schultag',icon:'mdi:school',weekdays:[0,1,2,3,4],calendar_entity:'',calendar_mode:'no_event',revision:2,uses:2};
+ const e=setup({manager:true,catalog:{shared_days:[used]}});await flush();
+ assert.match(e.editor.shadowRoot.querySelector('#setup-body').textContent,/Auf 2 Karten verwendet/);assert(e.editor.shadowRoot.querySelector('[data-action="template-delete"]').disabled);
+ assert(!e.calls.some(call=>call.action==='get'));assert(!e.calls.find(call=>call.action==='catalog').owner_id);
+ e.click('day-edit','[data-kind="shared"]');assert.equal(e.editor.shadowRoot.querySelector('#day-music,#day-confirm'),null);e.change('day-name','Schule');
+ e.fail=true;e.click('day-save');await flush();assert.match(e.editor.shadowRoot.querySelector('#setup-day-error').textContent,/fehlgeschlagen/);assert(e.editor._dayDialog.open);
+ e.fail=false;e.click('day-save');await flush();assert.equal(e.catalog.shared_days[0].name,'Schule');
+ const save=e.calls.findLast(call=>call.action==='save_day_template');assert.deepEqual(Object.keys(save.day_template).sort(),['id','name','icon','weekdays','calendar_entity','calendar_mode'].sort());assert.equal(save.revision,2);
+ e.click('day-add');e.change('day-name','Spätdienst');e.weekdays([5,6]);e.click('day-save');await flush();const day=e.catalog.shared_days[1];
+ e.click('template-delete',`[data-kind="${day.id}"]`);assert.equal(e.calls.filter(call=>call.action==='delete_day_template').length,0);
+ e.click('template-confirm-delete');await flush();assert.equal(e.catalog.shared_days.length,1);assert.equal(e.calls.find(call=>call.action==='delete_day_template').revision,1);e.editor.remove();
+});
+test('Hue scenes are scoped to selected lamps and removing a lamp clears an incompatible scene',async()=>{
+ const light=(id,attributes={})=>({id,label:id,attributes:{supported_color_modes:['rgb'],...attributes}});
+ const e=setup({catalog:{lights:[light('light.one'),light('light.two'),light('light.three'),light('light.group',{is_hue_group:true,entity_id:['light.one','light.two']})],hue_scenes:[{id:'scene.one',label:'Entspannen',members:['light.one']},{id:'scene.both',label:'Sonnenlicht',members:['light.one','light.two']},{id:'scene.extra',label:'Zusätzliches Zimmer',members:['light.one','light.three']}]}});await flush();await e.music();e.click('setup-next');e.click('setup-next');
+ await e.pick('lights',['light.one','light.two']);const selector=e.editor.shadowRoot.querySelector('#wake-hue-scene');assert.equal(selector.options.length,3);assert(!selector.textContent.includes('Zusätzliches Zimmer'));
+ e.change('wake-hue-scene','scene.both');assert.equal(e.events.at(-1).hue_scene,'scene.both');assert.equal(e.editor.shadowRoot.querySelectorAll('[data-action="device-open"]').length,0);assert.match(e.editor.shadowRoot.querySelector('.setup-list').textContent,/Hue-Szene: Sonnenlicht/);
+ e.click('setup-next');assert.match(e.editor.shadowRoot.querySelector('#setup-page').textContent,/Hue-Szene: Sonnenlicht/);e.click('setup-back');e.click('device-remove','[data-index="1"]');assert.equal(e.events.at(-1).hue_scene,'');
+ await e.pick('lights',['light.group']);assert(!e.editor.shadowRoot.querySelector('#wake-hue-scene').querySelector('[value="scene.one"]'));assert(e.editor.shadowRoot.querySelector('#wake-hue-scene').querySelector('[value="scene.both"]'));e.editor.remove();
 });

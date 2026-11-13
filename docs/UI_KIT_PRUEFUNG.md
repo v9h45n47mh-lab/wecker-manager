@@ -1,4 +1,4 @@
-# UI-Kit-Prüfung für Wecker 1.4.0
+# UI-Kit-Prüfung für Wecker 1.5.0
 
 Der Wecker bindet HA UI Kit 1.4.1 unverändert am Commit `393474e75869ba79195d800624a5a793a51fe2c4` ein. Der Build prüft die festgehaltenen Prüfsummen von JavaScript, CSS und Lizenz.
 
@@ -14,6 +14,6 @@ Der Wecker bindet HA UI Kit 1.4.1 unverändert am Commit `393474e75869ba79195d80
 
 Entfernt wurden die zusätzlichen 48-Pixel-Zeilenhöhen, die eigene 44-Pixel-Zeitbuttonhöhe, eigene Schriftgewichte, der eigene Buttonhintergrund und die graue Schnellzeitengestaltung. Die Musikzeile erhält keine abweichende Touch-Höhe mehr. Die Anordnung von Symbol, Text und Bedienelement bleibt weckerspezifisch; Gruppenabstände verwenden die UI-Kit-Tokens. Die Stunden-/Minutenräder bleiben eine eigene Weckerfunktion.
 
-Die Browserprüfung vergleicht berechnete Schrift-, Farb- und Innenabstandswerte von Zeilentext, Schaltbutton, Schnellzeit und Musikschalter mit separat gerenderten unveränderten UI-Kit-Komponenten, jeweils auf Desktop und schmalen Displays in hellen und dunklen Themes. Screenshots prüfen außerdem Setup, Tagesdialog, 24-Stunden-Farben, vollständige Bearbeitung und Einstellungen. Der separat installierte Music Manager wird über seine öffentliche Musikzeilen-Komponente eingebunden; dessen interner Shadow DOM wird nicht überschrieben.
+Die Browserprüfung vergleicht berechnete Schrift-, Farb- und Innenabstandswerte von Zeilentext, Schaltbutton, Schnellzeit und Musikschalter mit separat gerenderten unveränderten UI-Kit-Komponenten, jeweils auf Desktop und schmalen Displays in hellen und dunklen Themes. Screenshots prüfen außerdem Setup, Tagesdialog, 24-Stunden-Farben, vollständige Bearbeitung, zentrale Tagestypen-Verwaltung, Hue-Szenenauswahl und Einstellungen. Der separat installierte Music Manager wird über seine öffentliche Musikzeilen-Komponente eingebunden; dessen interner Shadow DOM wird nicht überschrieben.
 
 Tagessymbole verwenden ausschließlich die Theme-Farben für primäre Aktionen (blau) und sekundären Text (grau). Die Breitenbegrenzung des Einstellungsdialogs ist eine äußere Layoutvorgabe; gemeinsame Schriften, Innenabstände und Bedienelemente bleiben unverändert.

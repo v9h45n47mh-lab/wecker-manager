@@ -26,7 +26,7 @@ def day_definitions(record):
 def validate_days(raw):
     if not isinstance(raw, list) or not 1 <= len(raw) <= 12:
         raise AccessError("invalid_config", "Bitte einen bis zwölf Tagestypen anlegen.")
-    result, identifiers = [], set()
+    result, identifiers, names = [], set(), set()
     fields = {"id", "name", "icon", "weekdays", "music_mode", "confirm_disable", "calendar_entity"}
     for item in raw:
         if not isinstance(item, dict) or not fields <= set(item) or set(item) - fields - {"calendar_mode", "template_id", "template_revision"}:
@@ -35,6 +35,9 @@ def validate_days(raw):
             raise AccessError("invalid_config", "Jeder Tagestyp benötigt eine eigene Kennung.")
         if not isinstance(item["name"], str) or not 1 <= len(item["name"].strip()) <= 60:
             raise AccessError("invalid_config", "Bitte einen Namen mit höchstens 60 Zeichen vergeben.")
+        if item["name"].strip().casefold() in names:
+            raise AccessError("invalid_config", "Dieser Tagestyp ist auf der Karte bereits vorhanden. Bitte den vorhandenen Typ bearbeiten.")
+        names.add(item["name"].strip().casefold())
         if not isinstance(item["icon"], str) or len(item["icon"]) > 80 or not ICON.fullmatch(item["icon"]):
             raise AccessError("invalid_config", "Bitte ein gültiges Symbol auswählen.")
         weekdays = item["weekdays"]
