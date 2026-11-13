@@ -1,3 +1,11 @@
+# Wecker 1.6.0
+
+- Markierte Radiosender aus Music Manager 2.2.0 sind als persönliche Weckmusik auf allen zugeordneten Sonos-Boxen verwendbar.
+- Lautstärke, Musikschalter je Tagestyp und das Ende nach fünf Minuten gelten auch für Radio.
+- Native Radio-Wiedergabe ohne aktive Apple-Music-Verbindung beim Wecken; persönliche Benutzer- und Geräteberechtigungen bleiben erhalten.
+- Die Hue-Szenen, Tagestypenverwaltung und übrigen Neuerungen aus 1.5.0 bleiben erhalten.
+- Für die Senderauswahl Music Manager ebenfalls auf 2.2.0 aktualisieren. Bestehende Karten bleiben verwendbar.
+
 # Wecker 1.5.0
 
 - Unter **Zahnrad → Tagestypen verwalten** können Administratoren gemeinsame Tagestypen anlegen, bearbeiten und unbenutzte Typen löschen. Die Liste zeigt, auf wie vielen Karten ein Typ verwendet wird. Gemeinsame Regeln ändern sich auf allen verknüpften Karten; persönliche Weckzeiten, Aktivierungen und Musik bleiben erhalten.

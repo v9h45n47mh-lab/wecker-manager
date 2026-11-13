@@ -15,6 +15,39 @@ from music_fixture import load_gateway
 
 
 class WakeCardTests(IsolatedAsyncioTestCase):
+    async def test_radio_wake_plays_on_all_bound_speakers_without_ma_and_retains_stop_deadline(self):
+        hass, entry, owner, admin, _, config, *_ = self.fixture()
+        await self.wake.create_card(hass, admin, config)
+        record = entry.options['wake_cards'][config['alarm_id']]
+        record['settings']['types']['schultag']['music'] = True
+        hass.user_stores[owner.id].data['music_manager_alarm_music'][config['alarm_id']] = {
+            'kind':'radio', 'uri':'media-source://radio_browser/swr3',
+            'media_content_id':'media-source://radio_browser/swr3', 'media_type':'radio', 'title':'SWR3'}
+        hass.mass.auth.get_user.reset_mock()
+        hass.mass.auth.get_user.side_effect = RuntimeError('MA offline')
+        hass.services.async_call.reset_mock()
+        await self.wake.execute(hass, entry, record, owner, 'schultag', 'wake')
+        plays = [a for a in hass.services.async_call.await_args_list if a.args[:2] == ('media_player','play_media')]
+        self.assertEqual({a.args[2]['entity_id'] for a in plays}, set(config['speakers']))
+        self.assertTrue(all(a.args[2]['media_content_id']=='media-source://radio_browser/swr3' and a.kwargs['context'].user_id==owner.id for a in plays))
+        self.assertEqual(len(entry.options['wake_cards'][config['alarm_id']]['stops']),len(config['speakers']))
+        hass.mass.auth.get_user.assert_not_awaited()
+        hass.mass.player_queues.play_media.assert_not_awaited()
+
+    async def test_radio_wake_rejects_urls_categories_and_mismatched_saved_ids_before_playback(self):
+        for uri, content_id in [('https://example.com/audio','https://example.com/audio'),
+                                ('media-source://radio_browser/country/DE','media-source://radio_browser/country/DE'),
+                                ('media-source://radio_browser/swr3','media-source://radio_browser/other')]:
+            hass, entry, owner, admin, _, config, *_ = self.fixture()
+            await self.wake.create_card(hass, admin, config)
+            record = entry.options['wake_cards'][config['alarm_id']]
+            hass.user_stores[owner.id].data['music_manager_alarm_music'][config['alarm_id']] = {
+                'kind':'radio','uri':uri,'media_content_id':content_id,'title':'Station'}
+            hass.services.async_call.reset_mock()
+            with self.assertRaises(self.wake.AccessError):
+                await self.wake.play_speaker(hass, entry, record, owner, config['speakers'][0])
+            hass.services.async_call.assert_not_awaited()
+
     @classmethod
     def setUpClass(cls):
         cls.gateway = load_gateway()

@@ -2,7 +2,7 @@
 
 ![Wecker](custom_components/wecker_manager/brand/icon.png)
 
-Home-Assistant-Integration mit vollständig bearbeitbaren Weckerkarten und gemeinsamen Tagestypen. Version **1.5.0**, unverändertes **HA UI Kit 1.4.1**.
+Home-Assistant-Integration mit vollständig bearbeitbaren Weckerkarten und gemeinsamen Tagestypen. Version **1.6.0**, unverändertes **HA UI Kit 1.4.1**.
 
 ## Funktionen
 
@@ -40,3 +40,7 @@ Die neue Integration benötigt keine YAML-Weckerhelfer. Bereits angelegte Karten
 `npm ci`, `npm run build`, `npm run check`, `npm test`, `npm run test:browser`. `CHROMIUM_PATH` kann den Browser vorgeben. Die Backendtests verwenden den separat ausgecheckten Music Manager am Commit `5b312361676197bf1178ce76b63ab46ac76d3975` über `MUSIC_MANAGER_SOURCE` oder `.test-deps/music-manager`.
 
 `python3 scripts/package.py` erzeugt das Installationspaket und eine eigenständige Vorschau mit Beispieldaten. Das UI Kit wird lokal mit festen Prüfsummen gebündelt; es gibt keinen Laufzeitabruf von GitHub oder einem CDN.
+
+## Radiosender als Weckmusik (1.6.0)
+
+Mit Music Manager ab **2.2.0** lassen sich Radiosender zum Wecken markieren und auf der Weckerkarte auswählen. Die Auswahl gilt wie die Apple-Music-Auswahl für alle Tagestypen; Musikschalter, Lautstärke und das Ende nach fünf Minuten gelten unverändert. Der Radiosender startet nativ auf allen zugeordneten Sonos-Boxen, auch wenn Music Assistant beim Wecken nicht verbunden ist. Benutzer- und Gerätebindungen werden weiterhin geprüft. Bestehende Apple-Music-Auswahlen und alle Tagestyp- und Hue-Szenen-Einstellungen bleiben erhalten.

@@ -1,4 +1,4 @@
-/* Wecker 1.5.0 | MIT | HA UI Kit 1.4.1 bundled unchanged */
+/* Wecker 1.6.0 | MIT | HA UI Kit 1.4.1 bundled unchanged */
 const WeckerManagerUI=(()=>{
 /* HA UI Kit 1.4.1 | MIT | Source priority: Shutter, Light, Essensplaner, Haushalt, Spuelmaschine, Access */
 const UI_VERSION = "1.4.1";
@@ -577,7 +577,7 @@ return {UI_VERSION,UI_CSS,ICON_NAMES,icon,MUSIC_PLAYER_CSS,escapeHtml,button,pro
 (()=>{
 const {UI_CSS, navigation, row, section, button, iconButton, filterButton, toggle, dialog, confirmDialog, field, selectField, rangeControl, multiSelect, whiteTemperatureControl, colourPicker, weekdayPicker, notice, loadingState, versionInfo, bindUI, escapeHtml} = WeckerManagerUI;
 
-const CARD_VERSION='1.5.0';
+const CARD_VERSION='1.6.0';
 
 const defaultDays = (calendar='') => [
   {id:'schultag',name:'Schultag',icon:'mdi:school',weekdays:[0,1,2,3,4],music_mode:'always',confirm_disable:true,calendar_entity:calendar},
