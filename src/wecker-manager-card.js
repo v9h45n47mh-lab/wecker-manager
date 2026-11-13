@@ -153,12 +153,12 @@ class MusicManagerAlarmCard extends HTMLElement {
     const d=this._draft;if(!d)return;
     this.shadowRoot.getElementById('wake-settings-status').innerHTML='';
     const available=this._data.sunrise_available??Boolean(this._config.lights.length);
-    this.shadowRoot.getElementById('wake-settings').innerHTML=rangeControl({id:'wake-volume',label:'Musiklautstärke für alle Boxen',value:d.volume,min:5,max:15,step:1,allowKeep:false,action:'volume'})+this._days().map(day=>{
+    this.shadowRoot.getElementById('wake-settings').innerHTML=versionInfo({frontend:CARD_VERSION,backend:this._data.version,ui:'1.4.1',label:'Wecker'})+rangeControl({id:'wake-volume',label:'Musiklautstärke für alle Boxen',value:d.volume,min:5,max:15,step:1,allowKeep:false,action:'volume'})+this._days().map(day=>{
       const kind=day.id,item=d.types[kind],sunrise=item.sunrise_minutes??(kind==='schultag'?(d.sunrise_minutes??this._config.sunrise_minutes??0):0);
       const durations=[...new Set([0,5,10,15,20,30,sunrise])].sort((a,b)=>a-b);
       const light=selectField({id:kind==='schultag'?'wake-sunrise-setting':'wake-sunrise-'+kind,label:'Sonnenaufgang',value:String(sunrise),disabled:!available&&!sunrise,options:durations.map(n=>({value:String(n),label:n?`${n} Minuten vor der Weckzeit`:'Aus'})),hint:available?'Die zugeordneten dimmbaren Lichter werden bis zur Weckzeit aufgeblendet.':'Hierfür wird eine zugeordnete dimmbare Lampe benötigt.'}).replace('<select ',`<select data-wake-sunrise="${escapeHtml(kind)}" `);
       return section({id:`presets-${kind}`,title:day.name,content:light+`<div><p class="hint">Bis zu drei Schnellzeiten</p>${item.presets.map((time,slot)=>`<div class="wake-preset-line">${button({label:time,action:'preset-edit',data:{kind,slot}})}${iconButton({icon:'trash',label:`Schnellzeit ${time} entfernen`,action:'preset-remove',data:{kind,slot}})}</div>`).join('')}${item.presets.length<3?button({label:'Zeit hinzufügen',icon:'add',action:'preset-add',data:{kind}}):''}</div>`});
-    }).join('')+(this._hass?.user?.is_admin?button({label:'Gesamte Karte bearbeiten',icon:'edit',action:'edit-card'}):'')+versionInfo({frontend:CARD_VERSION,backend:this._data.version,ui:'1.4.1',label:'Wecker'});
+    }).join('')+(this._hass?.user?.is_admin?button({label:'Gesamte Karte bearbeiten',icon:'edit',action:'edit-card'}):'');
   }
   async _changeCardField(event){
     const element=event.target;

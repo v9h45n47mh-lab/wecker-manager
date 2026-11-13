@@ -45,7 +45,7 @@ Bereits ausgeführte Wecker werden nicht erneut als ausstehend gezählt. Die Vor
 
 Uhrzeit antippen und die Räder verwenden. Eine Schnellzeit übernimmt die Zeit sofort. Aktivierung und schaltbare Musik werden zentral gespeichert. Eine konfigurierte Ausschaltbestätigung wird auch serverseitig geprüft.
 
-Unter dem Zahnrad stehen Lautstärke 5–15 %, bis zu drei Schnellzeiten und Sonnenaufgang je Typ. Der Dialog ist höchstens 480 Pixel breit und passt sich kleineren Bildschirmen an. Unten stehen Wecker-, Integrations- und UI-Kit-Version. Dimmbare Lichter werden beim Sonnenaufgang bis zur Weckzeit zur zugeordneten Zielhelligkeit aufgeblendet.
+Unter dem Zahnrad stehen Lautstärke 5–15 %, bis zu drei Schnellzeiten und Sonnenaufgang je Typ. Der Dialog ist höchstens 480 Pixel breit und passt sich kleineren Bildschirmen an. Direkt im Dialog stehen Wecker-, Integrations- und UI-Kit-Version. Dimmbare Lichter werden beim Sonnenaufgang bis zur Weckzeit zur zugeordneten Zielhelligkeit aufgeblendet.
 
 ## Betrieb
 

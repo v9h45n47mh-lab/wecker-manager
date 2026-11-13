@@ -113,7 +113,9 @@ let browser;
   if(calendar){await dayDialog.locator('#day-calendar-mode').selectOption(mode);assert(await dayDialog.getByText('Nur ganztägige Termine zählen',{exact:false}).isVisible());}
   await dayDialog.getByRole('button',{name:'Übernehmen',exact:true}).click();return page.evaluate(name=>wakeDemo.edited.days.find(d=>d.name===name).id,name);
  };
- const schoolId=await addDay('Schultag','mdi:school',[0,1,2,3,4],'always','confirm','calendar.school','no_event');
+ await editor.locator('#setup-shared-day').selectOption('day_shared_school');await setupAction('day-use').click();assert.equal(await dayDialog.locator('#day-name').inputValue(),'Schultag');
+ await dayDialog.locator('#day-music').selectOption('always');await dayDialog.locator('#day-confirm').selectOption('confirm');await dayDialog.getByRole('button',{name:'Übernehmen',exact:true}).click();
+ const schoolId=await page.evaluate(()=>wakeDemo.edited.days.find(d=>d.template_id==='day_shared_school').id);
  await addDay('Wochenende','mdi:weather-sunny',[5,6]);await addDay('Ferien / schulfrei','mdi:palm-tree',[0,1,2,3,4],'switchable','click','calendar.school','event');
  await setupAction('day-add').click();await dayDialog.locator('#day-name').fill('Frühdienst');
  await dayDialog.locator('#day-icon').selectOption('mdi:briefcase');await dayDialog.locator('#day-music').selectOption('always');await dayDialog.locator('#day-confirm').selectOption('confirm');await dayDialog.locator('#day-calendar').selectOption('calendar.work');
@@ -178,9 +180,9 @@ let browser;
  await full.locator('[data-action="navigate"][data-page="music"]').click();await full.locator('#wake-name').fill('Pauls Wecker');await full.locator('#wake-owner').selectOption('paul');
  await full.locator('[data-action="picker-open"][data-kind="speakers"]').click();const fullPicker=full.locator('#setup-picker');
  await fullPicker.locator('input[value="media_player.max"]').uncheck();await fullPicker.locator('input[value="media_player.dress"]').check();await fullPicker.getByRole('button',{name:'Übernehmen',exact:true}).click();
- await full.locator('[data-action="navigate"][data-page="days"]').click();await full.locator('#setup-shared-day').selectOption('day_shared_school');await full.locator('[data-action="day-use"]').click();
+ await full.locator('[data-action="navigate"][data-page="days"]').click();await full.locator(`[data-action="day-edit"][data-kind="${schoolId}"]`).click();
  await full.locator('#setup-day').getByText('Änderungen gelten auch auf anderen Karten',{exact:false}).waitFor();
- const sharedId=await full.locator('#day-name').inputValue();assert.equal(sharedId,'Schultag');await full.locator('#setup-day').getByRole('button',{name:'Übernehmen',exact:true}).click();
+ assert.equal(await full.locator('#day-name').inputValue(),'Schultag');await full.locator('#day-name').fill('Unterricht');await full.locator('#setup-day').getByRole('button',{name:'Übernehmen',exact:true}).click();
  for(const width of [1100,390,320])for(const dark of [false,true]){await page.setViewportSize({width,height:1100});await page.evaluate(d=>document.body.classList.toggle('dark',d),dark);assert(await full.evaluate(el=>el.getBoundingClientRect().right<=innerWidth));await card().locator('#wake-edit-dialog').screenshot({path:path.join(screens,`full-edit-shared-${width}-${dark?'dark':'light'}.png`)});}
  await full.locator('[data-action="navigate"][data-page="review"]').click();const beforeTimes=await page.evaluate(()=>JSON.stringify(wakeDemo.records.get('new_alarm').settings.types));
  await full.locator('[data-action="setup-finish"]').click();await card().locator('#wake-edit-dialog').waitFor({state:'hidden'});
@@ -188,6 +190,7 @@ let browser;
  assert.equal(await page.evaluate(()=>wakeDemo.records.get('new_alarm').name),'Pauls Wecker');assert.equal(await page.evaluate(()=>wakeDemo.records.get('new_alarm').binding.card_id),'new_card');
  const oldTimes=JSON.parse(beforeTimes),newTimes=await page.evaluate(()=>wakeDemo.records.get('new_alarm').settings.types);for(const id of Object.keys(oldTimes))assert.equal(newTimes[id].time,oldTimes[id].time);
  assert(await page.evaluate(()=>wakeDemo.records.get('new_alarm').days.some(d=>d.template_id==='day_shared_school')));
+ assert.equal(await page.evaluate(()=>wakeDemo.records.get(wakeDemo.config.alarm_id).days.find(d=>d.id==='schultag').name),'Unterricht');
  await action('settings').click();await settings.locator('[data-action="edit-card"]').click();await full.locator('[data-action="setup-next"]').waitFor();
  await full.locator('[data-action="navigate"][data-page="music"]').click();await full.locator('#wake-name').fill('Nicht speichern');await page.keyboard.press('Escape');await card().locator('#wake-edit-dialog').waitFor({state:'hidden'});assert.equal(await page.evaluate(()=>wakeDemo.records.get('new_alarm').name),'Pauls Wecker');
  // Reproduce the supplied YAML: account selected, empty devices and a 1.1 catalog without automations.
