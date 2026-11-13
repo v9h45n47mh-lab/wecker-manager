@@ -99,10 +99,19 @@ class WakeCardTests(IsolatedAsyncioTestCase):
         users = {u.id:u for u in (owner, admin, other)}
         hass.auth = NS(async_get_user=AsyncMock(side_effect=users.get))
         hass.services = NS(async_call=AsyncMock(return_value={'calendar.school':{'events':[]}}))
-        hass.bus = NS(async_fire=Mock())
+        hass.bus = NS(async_fire=Mock(),async_listen=Mock(return_value=Mock()),async_listen_once=Mock(return_value=Mock()))
+        hass.is_running=False
         music_entry = hass.data['music_manager']['entry']
         entry = NS(options={'accounts':music_entry.options['accounts']},data={},entry_id='wecker-entry')
         hass.data['wecker_manager']={'wecker-entry':entry}
+        lovelace=types.ModuleType('homeassistant.components.lovelace.const')
+        lovelace.LOVELACE_DATA='lovelace';lovelace.EVENT_LOVELACE_UPDATED='lovelace_updated';lovelace.ConfigNotFound=type('ConfigNotFound',(Exception,),{})
+        sys.modules[lovelace.__name__]=lovelace
+        constants=sys.modules.setdefault('homeassistant.const',types.ModuleType('homeassistant.const'))
+        constants.EVENT_HOMEASSISTANT_STARTED='homeassistant_started'
+        async def dashboard(force):
+            return {'views':[{'cards':[{'type':'custom:wecker-manager-card',**deepcopy(record['binding'])} for record in entry.options.get('wake_cards',{}).values()]}]}
+        hass.data['lovelace']=NS(dashboards={None:NS(mode='storage',config=None,async_load=AsyncMock(side_effect=dashboard))})
         def update(entry, *, options):
             entry.options = options
         hass.config_entries = NS(async_update_entry=Mock(side_effect=update))
@@ -862,3 +871,125 @@ class WakeCardTests(IsolatedAsyncioTestCase):
         module=types.ModuleType('aiohue.v2.models.feature');module.DynamicsFeaturePut=lambda **kwargs:NS(**kwargs)
         with patch.dict(sys.modules,{'aiohue.v2.models.feature':module}),patch.object(self.wake.asyncio,'sleep',new=AsyncMock()):await self.wake.execute(hass,entry,record,owner,'schultag','sunrise')
         self.assertEqual(bridge.api.lights.update.await_args.args[1].dynamics.duration,599000);self.assertEqual(bridge.api.lights.update.await_args.args[0],'one')
+
+    def saved_dashboard(self, hass, cards):
+        loader=AsyncMock(return_value={'views':[{'sections':[{'cards':cards}]}]})
+        hass.data['lovelace']=NS(dashboards={'family':NS(mode='storage',config={'title':'Familie'},async_load=loader)})
+        return loader
+
+    async def test_editor_draft_has_no_alarm_mapping_or_day_usage_until_dashboard_is_saved(self):
+        from custom_components.wecker_manager.card_setups import prepare_setup, synchronize_saved_setups
+        hass,entry,owner,admin,_,c,_,_=self.fixture();music=hass.data['music_manager']['entry'];old_music=deepcopy(music.options)
+        loader=self.saved_dashboard(hass,[])
+        draft=await prepare_setup(hass,admin,c)
+        self.assertFalse(entry.options.get('wake_cards'));self.assertFalse(entry.options.get('day_templates'));self.assertEqual(music.options,old_music)
+        await synchronize_saved_setups(hass)
+        self.assertFalse(entry.options.get('wake_cards'));self.assertEqual(music.options,old_music)
+        # The durable draft survives restart, but is still not executable.
+        hass.data.pop(self.wake.RUNTIME,None)
+        loader.return_value={'views':[{'cards':[{'type':'custom:wecker-manager-card',**draft['config'],'setup_id':draft['setup_id']}]}]}
+        await synchronize_saved_setups(hass)
+        record=entry.options['wake_cards'][c['alarm_id']]
+        self.assertEqual(record['setup_id'],draft['setup_id']);self.assertEqual(record['binding'],c)
+        self.assertFalse(entry.options['pending_setups']);self.assertEqual(len(music.options['alarms']),1)
+        before=deepcopy(entry.options);await synchronize_saved_setups(hass);self.assertEqual(entry.options,before)
+
+    async def test_prepared_edit_does_not_change_existing_alarm_and_stale_saved_edit_cannot_overwrite_it(self):
+        from custom_components.wecker_manager.card_setups import prepare_setup, synchronize_saved_setups
+        hass,entry,owner,admin,_,c,_,_=self.fixture();data=await self.activate(hass,admin,c)
+        original=deepcopy(entry.options['wake_cards'][c['alarm_id']])
+        draft=await prepare_setup(hass,admin,{**c,'name':'Entwurf'},data['revision'])
+        self.assertEqual(entry.options['wake_cards'][c['alarm_id']],original)
+        settings=deepcopy(data['settings']);settings['volume']=14
+        await self.wake.update_card(hass,owner,c['alarm_id'],c['card_id'],settings,data['revision'])
+        self.saved_dashboard(hass,[{'type':'custom:wecker-manager-card',**draft['config'],'setup_id':draft['setup_id']}])
+        await synchronize_saved_setups(hass)
+        record=entry.options['wake_cards'][c['alarm_id']]
+        self.assertEqual(record['name'],original['name']);self.assertEqual(record['settings']['volume'],14)
+        self.assertIn(draft['setup_id'],entry.options['pending_setups']);self.assertIn('zwischenzeitlich',self.wake.runtime(hass)['errors'][c['card_id']])
+
+    async def test_saved_prepared_edit_preserves_personal_settings_and_playback(self):
+        from custom_components.wecker_manager.card_setups import prepare_setup, synchronize_saved_setups
+        hass,entry,owner,admin,_,c,_,_=self.fixture();await self.activate(hass,admin,c,time='07:23')
+        await self.wake.set_playback(hass,owner,c['alarm_id'],c['card_id'],{'mode':'duration','minutes':9})
+        old=deepcopy(entry.options['wake_cards'][c['alarm_id']])
+        draft=await prepare_setup(hass,admin,{**c,'name':'Umbenannt'},old['revision'])
+        self.assertEqual(entry.options['wake_cards'][c['alarm_id']],old)
+        self.saved_dashboard(hass,[{'type':'custom:wecker-manager-card',**draft['config'],'setup_id':draft['setup_id']}])
+        await synchronize_saved_setups(hass)
+        record=entry.options['wake_cards'][c['alarm_id']]
+        self.assertEqual(record['name'],'Umbenannt');self.assertEqual(record['settings'],old['settings']);self.assertEqual(record['playback'],old['playback'])
+
+    async def test_draft_payload_tampering_revoked_admin_and_expiry_never_create_an_alarm(self):
+        from custom_components.wecker_manager.card_setups import prepare_setup, synchronize_saved_setups
+        hass,entry,owner,admin,_,c,_,_=self.fixture()
+        with self.assertRaises(self.wake.AccessError):await prepare_setup(hass,owner,c)
+        draft=await prepare_setup(hass,admin,c)
+        saved={'type':'custom:wecker-manager-card',**draft['config'],'setup_id':draft['setup_id']}
+        loader=self.saved_dashboard(hass,[{**saved,'name':'Nachträglich verändert'}]);await synchronize_saved_setups(hass)
+        self.assertFalse(entry.options.get('wake_cards'));self.assertIn('verändert',self.wake.runtime(hass)['errors'][c['card_id']])
+        loader.return_value={'views':[{'cards':[saved]}]};admin.is_admin=False
+        await synchronize_saved_setups(hass);self.assertFalse(entry.options.get('wake_cards'))
+        admin.is_admin=True;type(self).now+=timedelta(days=2)
+        await synchronize_saved_setups(hass);self.assertFalse(entry.options.get('wake_cards'));self.assertFalse(entry.options['pending_setups'])
+
+    async def test_dashboard_save_listener_commits_without_a_card_or_browser_request(self):
+        from custom_components.wecker_manager.card_setups import prepare_setup
+        hass,entry,_,admin,_,c,_,_=self.fixture()
+        draft=await prepare_setup(hass,admin,c)
+        loader=self.saved_dashboard(hass,[{'type':'custom:wecker-manager-card',**draft['config'],'setup_id':draft['setup_id']}])
+        self.wake.async_setup_wake_cards(hass)
+        callback=hass.bus.async_listen.call_args.args[1]
+        await callback(NS(data={'url_path':'family'}))
+        self.assertIn(c['alarm_id'],entry.options['wake_cards'])
+        loader.assert_awaited_with(force=False)
+        self.wake.async_unload_wake_cards(hass)
+        hass.bus.async_listen.return_value.assert_called_once();hass.bus.async_listen_once.return_value.assert_called_once()
+
+    async def test_pending_card_owner_waits_without_creating_an_alarm_or_exposing_other_users_drafts(self):
+        from custom_components.wecker_manager.card_setups import prepare_setup
+        hass,entry,owner,admin,other,c,_,_=self.fixture();await prepare_setup(hass,admin,c)
+        connection=NS(user=owner,send_result=Mock(),send_error=Mock())
+        message={'id':1,'action':'get','alarm_id':c['alarm_id'],'card_id':c['card_id']}
+        await self.wake.websocket_wake_card(hass,connection,message)
+        result=connection.send_result.call_args.args[1]
+        self.assertTrue(result['pending']);self.assertFalse(result['exists']);self.assertFalse(result['can_create']);self.assertNotIn('config',result)
+        connection.send_result.reset_mock();connection.user=other
+        await self.wake.websocket_wake_card(hass,connection,message)
+        connection.send_result.assert_not_called();connection.send_error.assert_called_once();self.assertFalse(entry.options.get('wake_cards'))
+
+    async def test_unused_type_deletes_only_confirmed_orphans_and_their_music_bindings(self):
+        hass,entry,owner,admin,_,c,_,_=self.fixture()
+        c['days']=[self.custom_day(id='old',name='Veraltet',calendar_entity='',confirm_disable=False),self.custom_day(id='spare',name='Sonstiges',calendar_entity='',confirm_disable=False)]
+        old=await self.wake.create_card(hass,admin,{**c,'name':'Alter Entwurf'})
+        real={**c,'alarm_id':'real_alarm','card_id':'real_card','name':'Echter Wecker','days':[self.custom_day(id='real',name='Aktuell',calendar_entity='',confirm_disable=False)]}
+        await self.wake.create_card(hass,admin,real)
+        self.saved_dashboard(hass,[{'type':'custom:wecker-manager-card',**real}])
+        template=entry.options['day_templates'][old['days'][0]['template_id']]
+        keep=deepcopy(entry.options['wake_cards']['real_alarm']);before=deepcopy(entry.options)
+        with self.assertRaises(self.wake.AccessError):await self.wake.delete_day_template(hass,admin,template['id'],template['revision'])
+        self.assertEqual(entry.options,before)
+        remove=[{'alarm_id':c['alarm_id'],'card_id':c['card_id']}]
+        result=await self.wake.delete_day_template(hass,admin,template['id'],template['revision'],remove)
+        self.assertEqual(result['removed_cards'],1);self.assertNotIn(c['alarm_id'],entry.options['wake_cards']);self.assertNotIn(template['id'],entry.options['day_templates'])
+        self.assertEqual(entry.options['wake_cards']['real_alarm'],keep)
+        alarms=hass.data['music_manager']['entry'].options['alarms'];self.assertEqual([a['alarm_id'] for a in alarms],['real_alarm'])
+        self.assertIn(old['days'][1]['template_id'],entry.options['day_templates'])
+        hass.services.async_call.reset_mock();await self.wake.tick(hass,self.now);hass.services.async_call.assert_not_awaited()
+
+    async def test_cleanup_rechecks_status_cards_read_errors_and_running_music_before_deleting(self):
+        hass,entry,_,admin,_,c,_,_=self.fixture();old=await self.wake.create_card(hass,admin,c)
+        template=entry.options['day_templates'][old['days'][0]['template_id']]
+        remove=[{'alarm_id':c['alarm_id'],'card_id':c['card_id']}]
+        loader=self.saved_dashboard(hass,[{'type':'custom:wecker-manager-status-card',**c}])
+        before=deepcopy(entry.options)
+        with self.assertRaises(self.wake.AccessError):await self.wake.delete_day_template(hass,admin,template['id'],template['revision'],remove)
+        self.assertEqual(entry.options,before)
+        loader.side_effect=RuntimeError('Unreadable dashboard')
+        with self.assertRaises(self.wake.AccessError):await self.wake.delete_day_template(hass,admin,template['id'],template['revision'],remove)
+        self.assertEqual(entry.options,before)
+        loader.side_effect=None;loader.return_value={'views':[]}
+        entry.options['wake_cards'][c['alarm_id']]['stops']=[{'source':'media_player.sonos','at':(self.now+timedelta(minutes=9)).isoformat()}]
+        before=deepcopy(entry.options)
+        with self.assertRaises(self.wake.AccessError) as error:await self.wake.delete_day_template(hass,admin,template['id'],template['revision'],remove)
+        self.assertEqual(error.exception.code,'wake_in_progress');self.assertEqual(entry.options,before)

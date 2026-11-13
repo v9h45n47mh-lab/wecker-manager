@@ -6,7 +6,7 @@ import {parseHTML} from 'linkedom';
 const bundle=await readFile(new URL('../dist/wecker-manager-card.js',import.meta.url),'utf8');
 const clone=value=>JSON.parse(JSON.stringify(value));
 const flush=async()=>{for(let i=0;i<12;i++)await new Promise(resolve=>setImmediate(resolve));};
-function setup({config={},catalog:override,manager=false}={}){
+function setup({config={},catalog:override,manager=false,direct=true}={}){
  const {window}=parseHTML('<!doctype html><html><body></body></html>'),{document}=window;
  window.HTMLElement.prototype.showModal=function(){this.open=true;};
  window.HTMLElement.prototype.close=function(){this.open=false;this.dispatchEvent(new window.Event('close'));};
@@ -15,12 +15,18 @@ function setup({config={},catalog:override,manager=false}={}){
  const item=(id,label,attributes={})=>({id,label,description:id,attributes});
  const catalog={accounts:[{value:'max',label:'Maximilian'},{value:'paul',label:'Paul'}],speakers:[item('media_player.max','Maximilian'),item('media_player.second','Ankleide')],covers:[item('cover.one','Rollladen',{supported_features:4})],lights:[item('light.one','Deckenlicht',{supported_color_modes:['color_temp'],min_color_temp_kelvin:3000,max_color_temp_kelvin:6500})],calendars:[item('calendar.school','Schulfrei')],shared_days:[],hue_scenes:[]};
  if(override)Object.assign(catalog,override);
- const calls=[],events=[];let created=null,fail=false;
+ const calls=[],events=[];let created=null,prepared=null,fail=false;
  const editor=document.createElement(manager?'wecker-manager-day-manager':'wecker-manager-card-editor');
+ editor.directSave=direct;
  editor.setConfig({type:'custom:wecker-manager-card',alarm_id:'new_alarm',card_id:'new_card',owner_id:'',speakers:[],covers:[],lights:[],calendar_entity:'',sunrise_minutes:0,...config});
  editor.addEventListener('config-changed',e=>events.push(clone(e.detail.config)));
  editor.hass={user:{id:'admin',is_admin:true},connection:{async subscribeEvents(){return ()=>{}}},states:{},async callWS(msg){calls.push(clone(msg));
   if(msg.action==='get')return clone(created||{exists:false,can_create:true});
+  if(msg.action==='setup_status')return clone(prepared||{pending:false});
+  if(msg.action==='prepare_setup'){
+   if(fail)throw Error('Box ist offline');const {days,name,...binding}=msg.config;
+   prepared={pending:true,setup_id:'pending_setup',base_revision:created?.revision||0,config:clone(msg.config),preview:{exists:true,binding:clone(binding),days:clone(days),name,revision:(created?.revision||0)+1,settings:clone(created?.settings||{types:{}})}};return clone(prepared);
+  }
   if(msg.action==='catalog'){if(fail)throw Error('Dashboard konnte nicht geladen werden');return clone(catalog);}
   if(msg.action==='save_day_template'){
    if(fail)throw Error('Speichern fehlgeschlagen');const index=catalog.shared_days.findIndex(day=>day.id===msg.day_template.id),old=catalog.shared_days[index];
@@ -42,7 +48,7 @@ function setup({config={},catalog:override,manager=false}={}){
  const weekdays=values=>{for(const input of editor.shadowRoot.querySelectorAll('#day-weekdays input')){input.checked=values.includes(Number(input.value));input.toggleAttribute('checked',input.checked);input.dispatchEvent(new window.Event('change',{bubbles:true}));}};
  const addDay=(name='Frühdienst')=>{click('day-add');change('day-name',name);weekdays([0,1,2,3,4]);click('day-save');return events.at(-1).days.at(-1).id;};
  const music=async()=>{if(!editor._config.days.length)addDay();click('setup-next');change('wake-owner','max');await flush();await pick('speakers',['media_player.max']);};
- return {editor,catalog,calls,events,click,change,pick,music,addDay,weekdays,window,get created(){return created},set fail(v){fail=v}};
+ return {editor,catalog,calls,events,click,change,pick,music,addDay,weekdays,window,get created(){return created},saveDashboard(){created=clone(prepared.preview);prepared=null;},set fail(v){fail=v}};
 }
 test('configuration starts empty and requires explicitly chosen names and weekdays',async()=>{
  const e=setup();await flush();
@@ -101,7 +107,7 @@ test('administrator can configure existing day policies without changing fixed d
 });
 test('full card edit can change account, speakers and device targets without replacing the alarm',async()=>{
  const e=setup();await flush();await e.music();for(let i=0;i<3;i++)e.click('setup-next');e.click('setup-finish');await flush();const id=e.created.binding.card_id,settings=clone(e.created.settings);
- e.click('edit-card');await flush();e.click('setup-next');const name=e.editor.shadowRoot.querySelector('#wake-name');name.value='Pauls Wecker';name.dispatchEvent(new e.window.Event('input',{bubbles:true}));e.change('wake-owner','paul');await flush();await e.pick('speakers',['media_player.second']);
+ e.click('edit-card');await flush();const name=e.editor.shadowRoot.querySelector('#wake-name');name.value='Pauls Wecker';name.dispatchEvent(new e.window.Event('input',{bubbles:true}));e.click('setup-next');e.change('wake-owner','paul');await flush();await e.pick('speakers',['media_player.second']);
  e.click('setup-next');await e.pick('covers',['cover.one']);e.click('device-open','[data-kind="covers"]');e.change('setup-position','45');e.click('device-save');e.click('setup-next');e.click('setup-next');
  e.fail=true;e.click('setup-finish');await flush();assert.equal(e.created.binding.owner_id,'max');e.fail=false;e.click('setup-finish');await flush();
  assert.equal(e.created.binding.owner_id,'paul');assert.deepEqual(e.created.binding.speakers,['media_player.second']);assert.equal(e.created.binding.covers[0].position,45);assert.equal(e.created.binding.card_id,id);assert.deepEqual(e.created.settings,settings);assert.equal(e.created.name,'Pauls Wecker');e.editor.remove();
@@ -152,7 +158,19 @@ test('refresh checks current usage and separates saved alarms without a dashboar
  const day={id:'shared',name:'Schultag',icon:'mdi:school',weekdays:[0],calendar_entity:'',calendar_mode:'no_event',revision:2,uses:1,used_by:[{name:'Maximilians Wecker'}]};
  const e=setup({manager:true,catalog:{shared_days:[day]}});await flush();assert(e.calls.find(call=>call.action==='catalog').refresh_usage);
  Object.assign(e.catalog.shared_days[0],{uses:0,used_by:[],stored_uses:1,unassigned:[{name:'Maximilians alter Wecker'}]});e.catalog.usage_checked_at='2026-11-13T14:00:00Z';
- e.click('refresh-usage');await flush();assert.match(e.editor._body.textContent,/Weiterhin gespeicherte Wecker ohne Dashboardkarte: Maximilians alter Wecker/);assert.match(e.editor._body.textContent,/Zuletzt geprüft/);assert(e.editor.shadowRoot.querySelector('[data-action="template-delete"]').disabled);
+ e.click('refresh-usage');await flush();assert.match(e.editor._body.textContent,/Weiterhin gespeicherte Wecker ohne Dashboardkarte: Maximilians alter Wecker/);assert.match(e.editor._body.textContent,/Zuletzt geprüft/);assert(!e.editor.shadowRoot.querySelector('[data-action="template-delete"]').disabled);
  e.fail=true;e.click('refresh-usage');await flush();assert.match(e.editor._body.textContent,/Dashboard konnte nicht geladen werden/);assert.match(e.editor._body.textContent,/Maximilians alter Wecker/);e.fail=false;
  Object.assign(e.catalog.shared_days[0],{stored_uses:0,unassigned:[]});e.click('refresh-usage');await flush();assert(!e.editor.shadowRoot.querySelector('[data-action="template-delete"]').disabled);assert.equal(e.calls.filter(call=>call.action==='catalog').length,4);e.editor.remove();
+});
+test('dashboard editor only prepares a draft; closing it never creates an alarm',async()=>{
+ const e=setup({direct:false});await flush();assert(e.editor.shadowRoot.querySelector('#wake-name'));await e.music();assert.equal(e.editor.shadowRoot.querySelector('#wake-name'),null);for(let i=0;i<3;i++)e.click('setup-next');
+ e.fail=true;e.click('setup-finish');await flush();assert.equal(e.created,null);assert.match(e.editor._body.textContent,/offline/);
+ e.fail=false;e.click('setup-finish');await flush();assert.equal(e.created,null);assert.equal(e.events.at(-1).setup_id,'pending_setup');assert.match(e.editor._body.textContent,/Speichere jetzt die Dashboardkarte/);assert(!e.calls.some(call=>['create','configure','configure_days'].includes(call.action)));
+ e.editor.setConfig(e.events.at(-1));await flush();assert.equal(e.created,null);assert.match(e.editor._body.textContent,/Speichere jetzt die Dashboardkarte/);
+ const prepared=clone(e.events.at(-1));e.click('edit-card');await flush();e.change('wake-name','Nicht speichern');e.click('edit-card-cancel');assert.deepEqual(e.events.at(-1),prepared);e.editor.remove();assert.equal(e.created,null);
+});
+test('deleting an unused type names and confirms the exact stored alarms without cards',async()=>{
+ const day={id:'unused',name:'Unbenutzt',icon:'mdi:alarm',weekdays:[0],calendar_entity:'',calendar_mode:'no_event',revision:2,uses:0,stored_uses:1,unassigned:[{name:'Alter Entwurf',alarm_id:'old_alarm',card_id:'old_card'}]};
+ const e=setup({manager:true,catalog:{shared_days:[day]}});await flush();e.click('template-delete');assert.match(e.editor._templateConfirm.textContent,/Alter Entwurf/);assert(!e.calls.some(call=>call.action==='delete_day_template'));e.editor._templateConfirm.close();assert.equal(e.catalog.shared_days.length,1);
+ e.click('template-delete');e.click('template-confirm-delete');await flush();assert.deepEqual(e.calls.find(call=>call.action==='delete_day_template').remove_cards,[{alarm_id:'old_alarm',card_id:'old_card'}]);assert.equal(e.catalog.shared_days.length,0);e.editor.remove();
 });

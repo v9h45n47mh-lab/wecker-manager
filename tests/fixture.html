@@ -26,11 +26,12 @@ const settings={volume:10,sunrise_minutes:5,types:{schultag:{time:'06:12',enable
 const item=(id,label,attributes={})=>({id,label,description:id,attributes});
 const catalog={accounts:[{value:'max',label:'Maximilian'},{value:'paul',label:'Paul'}],speakers:[item('media_player.max','Maximilian'),item('media_player.dress','Ankleide')],covers:[item('cover.max','Maximilian',{supported_features:15}),item('cover.dress','Ankleide',{supported_features:15})],lights:[item('light.max','Deckenlicht',{supported_color_modes:['color_temp'],min_color_temp_kelvin:2000,max_color_temp_kelvin:6500}),item('light.dress','Bettlicht',{supported_color_modes:['rgb']})],calendars:[item('calendar.school','Schulfreie Tage'),item('calendar.work','Arbeitstage')]};
 catalog.hue_scenes=[{id:'scene.relax',label:'Entspannen',members:['light.max','light.dress'],lights:['light.max','light.dress']},{id:'scene.extra',label:'Ganzes Haus',members:['light.max','light.unselected'],lights:['light.max']}];
+const pendingSetups=new Map();let setupSerial=0;
 const records=new Map(),dashboardRefs=new Set([config.alarm_id+'|'+config.card_id]);
 const binding=({type,name,days,header,...rest})=>rest;
 const schoolTemplate={id:'day_shared_school',name:'Schultag',icon:'mdi:school',weekdays:[0,1,2,3,4],calendar_entity:'calendar.school',calendar_mode:'no_event',revision:1,uses:1,used_by:[{name:'Maximilians Wecker',owner:'Maximilian'}]};catalog.shared_days=[schoolTemplate];
 const initialDays=[{...schoolTemplate,id:'schultag',template_id:schoolTemplate.id,template_revision:1,music_mode:'always',confirm_disable:true},{id:'wochenende',name:'Wochenende',icon:'mdi:weather-sunny',weekdays:[5,6],music_mode:'switchable',confirm_disable:false,calendar_entity:'',calendar_mode:'event'},{id:'ferien',name:'Ferien / schulfrei',icon:'mdi:palm-tree',weekdays:[0,1,2,3,4],music_mode:'switchable',confirm_disable:false,calendar_entity:'calendar.school',calendar_mode:'event'}].map(({revision,uses,...day})=>day);
-records.set(config.alarm_id,{exists:true,binding:binding(config),name:config.name,version:'1.7.1',days:initialDays,settings:clone(settings),revision:1});
+records.set(config.alarm_id,{exists:true,binding:binding(config),name:config.name,version:'1.8.0',days:initialDays,settings:clone(settings),revision:1});
 const forecast={schultag:true,wochenende:false,ferien:false};
 const commonKeys=['name','display_name','icon','weekdays','calendar_entity','calendar_mode'];
 const common=day=>Object.fromEntries(commonKeys.map(key=>[key,clone(key==='display_name'?day.display_name||day.name:day[key])]));
@@ -47,6 +48,13 @@ const makeHass=()=>({user:{id:user,is_admin:user==='admin'},connection,states:{}
  async callWS(msg){calls.push(clone(msg));if(delay)await delay;if(fail&&msg.action==='update')throw {code:'save_failed',message:'Speichern fehlgeschlagen'};
  if(msg.type==='music_manager/alarm')return {owner:'Maximilian',source:'Maximilian',selection:{title:'TOP STRIKER',uri:'apple_music--max://track/top',media_type:'track'},songs:[{title:'TOP STRIKER',uri:'apple_music--max://track/top',media_type:'track'}],in_songs:true};
  if(msg.type!=='wecker_manager/card')throw Error('Unbekannte Anfrage');
+ if(msg.action==='setup_status')return clone(pendingSetups.get(msg.setup_id)||{pending:false});
+ if(msg.action==='prepare_setup'){
+  if(user!=='admin')throw Error('Keine Berechtigung');if(fail)throw Error('Speichern fehlgeschlagen');const previous=records.get(msg.config.alarm_id);
+  if(previous&&msg.revision!==previous.revision)throw {code:'conflict',message:'Auf einem anderen Gerät geändert.'};
+  const preview=previous?{...clone(previous),binding:binding(msg.config),name:msg.config.name,days:clone(msg.config.days),revision:previous.revision+1}:{exists:true,binding:binding(msg.config),name:msg.config.name,days:clone(msg.config.days),settings:clone(settings),revision:1};
+  const response={pending:true,setup_id:'pending_'+(++setupSerial),base_revision:previous?.revision||0,config:clone(msg.config),preview};pendingSetups.set(response.setup_id,response);return clone(response);
+ }
  if(msg.action==='catalog'){if(user!=='admin')throw Error('Keine Berechtigung');const response=clone(catalog);if(msg.refresh_usage){response.usage_checked_at=new Date().toISOString();for(const day of response.shared_days){const uses=[...records.values()].filter(r=>r.days?.some(d=>d.template_id===day.id));day.stored_uses=uses.length;day.used_by=[];day.unassigned=[];for(const record of uses){const use={name:record.name||'Wecker',owner:catalog.accounts.find(a=>a.value===record.binding.owner_id)?.label||''};(dashboardRefs.has(record.binding.alarm_id+'|'+record.binding.card_id)?day.used_by:day.unassigned).push(use);}day.uses=day.used_by.length;}}return response;}
  if(msg.action==='save_day_template'){
   if(user!=='admin')throw Error('Keine Berechtigung');if(fail)throw Error('Speichern fehlgeschlagen');const old=catalog.shared_days.find(day=>day.id===msg.day_template.id);
@@ -55,13 +63,18 @@ const makeHass=()=>({user:{id:user,is_admin:user==='admin'},connection,states:{}
   for(const record of records.values()){let changed=false;for(const day of record.days||[])if(day.template_id===template.id){Object.assign(day,common(template),{template_revision:template.revision});record.settings.types[day.id].calendar_mode=day.calendar_mode;changed=true;}if(changed){record.revision++;notify(record.binding.alarm_id);}}
   for(const cb of listeners)cb({data:{day_templates:true}});return {saved:true,template:clone(template)};
  }
- if(msg.action==='delete_day_template'){if(user!=='admin')throw Error('Keine Berechtigung');const day=catalog.shared_days.find(day=>day.id===msg.template_id);if(!day||day.revision!==msg.revision)throw Error('Auf einem anderen Gerät geändert.');if(day.uses)throw Error('Tagestyp wird noch verwendet.');catalog.shared_days=catalog.shared_days.filter(day=>day!==day);for(const cb of listeners)cb({data:{day_templates:true}});return {deleted:true};}
+ if(msg.action==='delete_day_template'){
+  if(user!=='admin')throw Error('Keine Berechtigung');const day=catalog.shared_days.find(day=>day.id===msg.template_id);if(!day||day.revision!==msg.revision)throw Error('Auf einem anderen Gerät geändert.');
+  const linked=[...records.values()].filter(r=>r.days?.some(d=>d.template_id===day.id));if(linked.some(r=>dashboardRefs.has(r.binding.alarm_id+'|'+r.binding.card_id)))throw Error('Tagestyp wird noch verwendet.');
+  const expected=linked.map(r=>({alarm_id:r.binding.alarm_id,card_id:r.binding.card_id}));if(JSON.stringify(msg.remove_cards||[])!==JSON.stringify(expected))throw Error('Bereinigung bitte bestätigen.');
+  for(const record of linked)records.delete(record.binding.alarm_id);catalog.shared_days=catalog.shared_days.filter(day=>day!==day);for(const cb of listeners)cb({data:{day_templates:true}});return {deleted:true};
+ }
  const record=records.get(msg.alarm_id||msg.config?.alarm_id);
  if(record&&user!=='admin'&&user!==record.binding.owner_id)throw Error('Dieser Wecker gehört einem anderen Benutzer.');
  if(msg.action==='day_info')return {date:msg.day_offset===0?'2026-11-13':'2026-11-14',kind:'wochenende',label:msg.day_offset===0?'Heute ist Schultag':'Morgen ist Wochenende'};
  if(msg.action==='upcoming')return {types:Object.fromEntries(Object.entries(record.settings.types).map(([id,item])=>[id,{active:item.enabled&&Boolean(forecast[id]),label:'14.11. 06:00'}]))};
  if(msg.action==='get')return record&&record.binding.card_id===msg.card_id?clone(record):{exists:false,can_create:user==='admin',replaces_card:!!record};
- if(msg.action==='create'){if(record?.binding.card_id===msg.config.card_id&&JSON.stringify(record.binding)!==JSON.stringify(binding(msg.config)))throw Error('Geräte sind festgelegt.');const next={exists:true,binding:binding(msg.config),name:msg.config.name,version:'1.7.1',days:clone(msg.config.days),settings:{...clone(settings),types:Object.fromEntries(msg.config.days.map(d=>[d.id,{...(clone(settings.types[d.id]||{time:'06:00',music:false,presets:[]})),enabled:false,music:d.music_mode==='always',calendar_mode:d.calendar_mode,sunrise_minutes:0}]))},revision:1};records.set(msg.config.alarm_id,next);dashboardRefs.add(msg.config.alarm_id+'|'+msg.config.card_id);sharedUpdate(next,msg.config.days);notify(msg.config.alarm_id);return clone(next);}
+ if(msg.action==='create'){if(record?.binding.card_id===msg.config.card_id&&JSON.stringify(record.binding)!==JSON.stringify(binding(msg.config)))throw Error('Geräte sind festgelegt.');const next={exists:true,binding:binding(msg.config),name:msg.config.name,version:'1.8.0',days:clone(msg.config.days),settings:{...clone(settings),types:Object.fromEntries(msg.config.days.map(d=>[d.id,{...(clone(settings.types[d.id]||{time:'06:00',music:false,presets:[]})),enabled:false,music:d.music_mode==='always',calendar_mode:d.calendar_mode,sunrise_minutes:0}]))},revision:1};records.set(msg.config.alarm_id,next);dashboardRefs.add(msg.config.alarm_id+'|'+msg.config.card_id);sharedUpdate(next,msg.config.days);notify(msg.config.alarm_id);return clone(next);}
  if(msg.action==='configure_days'||msg.action==='configure'){if(user!=='admin')throw Error('Keine Berechtigung');if(msg.revision!==record.revision)throw {code:'conflict',message:'Auf einem anderen Gerät geändert.'};const previous=record.settings.types,days=msg.days||msg.config.days;if(msg.config){record.binding=binding(msg.config);record.name=msg.config.name;}sharedUpdate(record,days);record.settings.types=Object.fromEntries(record.days.map(d=>[d.id,{...(previous[d.id]||{time:'06:00',enabled:false,music:d.music_mode==='always',presets:[],sunrise_minutes:0}),calendar_mode:d.calendar_mode}]));record.revision++;notify(msg.alarm_id||msg.config.alarm_id);return clone(record);}
  if(msg.action==='set_playback'){if(fail)throw Error('Speichern fehlgeschlagen');record.playback=clone(msg.playback);record.revision++;notify(msg.alarm_id);return clone(record);}
  if(msg.action==='set_enabled'){if(fail)throw {code:'save_failed',message:'Speichern fehlgeschlagen'};const day=record.days?.find(d=>d.id===msg.kind);if((day?.confirm_disable||msg.kind==='schultag')&&record.settings.types[msg.kind].enabled&&!msg.enabled&&!msg.confirm_disable?.includes(msg.kind))throw {code:'confirmation_required',message:'Ausschalten bitte bestätigen'};record.settings.types[msg.kind].enabled=msg.enabled;record.revision++;notify(msg.alarm_id);return clone(record);}
@@ -77,7 +90,11 @@ if(new URLSearchParams(location.search).has('editor')){
  editor.hass=makeHass();editor.addEventListener('config-changed',event=>{window.wakeDemo.edited=event.detail.config;});document.querySelector('#editor').append(editor);
 }
 document.querySelector('#theme').onclick=()=>document.body.classList.toggle('dark');
-window.wakeDemo={card,editor,config,records,dashboardRefs,catalog,calls,listeners,notify,makeHass,forecast,edited:null,
+window.wakeDemo={card,editor,config,records,dashboardRefs,pendingSetups,catalog,calls,listeners,notify,makeHass,forecast,edited:null,
+ async saveDashboard(){
+  const config=clone(this.edited),pending=pendingSetups.get(config.setup_id);if(!pending)throw Error('Kein vorbereiteter Entwurf');
+  const existing=records.get(config.alarm_id),next=await makeHass().callWS({type:'wecker_manager/card',action:existing?'configure':'create',config:pending.config,...(existing?{revision:pending.base_revision}: {})});pendingSetups.delete(config.setup_id);notify(config.alarm_id);return next;
+ },
  set fail(value){fail=value},set delay(value){delay=value},
  switchUser(value){user=value;card.hass=makeHass();if(editor)editor.hass=makeHass();},
  remoteChange(change){const record=records.get(config.alarm_id);change(record);record.revision++;notify(config.alarm_id);}};
