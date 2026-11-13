@@ -46,9 +46,24 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           version=$(node -p 'JSON.parse(require("fs").readFileSync("package.json","utf8")).version')
-          if ! gh release view "v${version}" >/dev/null 2>&1; then
-            gh release create "v${version}" --target "$(git rev-parse HEAD)" --title "Wecker ${version}" --notes-file RELEASE_NOTES.md "../Wecker-${version}.zip" dist/wecker-manager-card.js dist/LICENSES.txt
-          fi
+          for attempt in 1 2 3; do
+            draft=$(gh release view "v${version}" --json isDraft --jq .isDraft 2>/dev/null) || draft=missing
+            if [ "$draft" = false ]; then
+              exit 0
+            fi
+            if [ "$draft" = missing ]; then
+              if ! gh release create "v${version}" --draft --target "$(git rev-parse HEAD)" --title "Wecker ${version}" --notes-file RELEASE_NOTES.md; then
+                sleep 3
+                continue
+              fi
+            fi
+            if gh release upload "v${version}" "../Wecker-${version}.zip" dist/wecker-manager-card.js dist/LICENSES.txt --clobber &&
+               gh release edit "v${version}" --draft=false --latest; then
+              exit 0
+            fi
+            sleep 3
+          done
+          exit 1
       - uses: actions/upload-artifact@v4
         if: always()
         with:
