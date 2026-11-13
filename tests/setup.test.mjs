@@ -21,7 +21,7 @@ function setup({config={},catalog:override,manager=false}={}){
  editor.addEventListener('config-changed',e=>events.push(clone(e.detail.config)));
  editor.hass={user:{id:'admin',is_admin:true},connection:{async subscribeEvents(){return ()=>{}}},states:{},async callWS(msg){calls.push(clone(msg));
   if(msg.action==='get')return clone(created||{exists:false,can_create:true});
-  if(msg.action==='catalog')return clone(catalog);
+  if(msg.action==='catalog'){if(fail)throw Error('Dashboard konnte nicht geladen werden');return clone(catalog);}
   if(msg.action==='save_day_template'){
    if(fail)throw Error('Speichern fehlgeschlagen');const index=catalog.shared_days.findIndex(day=>day.id===msg.day_template.id),old=catalog.shared_days[index];
    if(old&&old.revision!==msg.revision)throw {code:'conflict',message:'Auf einem anderen Gerät geändert'};
@@ -147,4 +147,12 @@ test('Hue scenes are edited per lamp and keep other lights independent',async()=
 test('day names identify a template while its independent display name is preserved',async()=>{
  const e=setup();await flush();const id=e.addDay('Schultag Maximilian');e.click('day-edit',`[data-kind="${id}"]`);e.change('day-display-name','Schultag');e.click('day-save');assert.equal(e.events.at(-1).days[0].display_name,'Schultag');
  e.click('day-edit',`[data-kind="${id}"]`);e.change('day-name','Schultag Paul');e.click('day-save');assert.equal(e.events.at(-1).days[0].name,'Schultag Paul');assert.equal(e.events.at(-1).days[0].display_name,'Schultag');e.editor.remove();
+});
+test('refresh checks current usage and separates saved alarms without a dashboard',async()=>{
+ const day={id:'shared',name:'Schultag',icon:'mdi:school',weekdays:[0],calendar_entity:'',calendar_mode:'no_event',revision:2,uses:1,used_by:[{name:'Maximilians Wecker'}]};
+ const e=setup({manager:true,catalog:{shared_days:[day]}});await flush();assert(e.calls.find(call=>call.action==='catalog').refresh_usage);
+ Object.assign(e.catalog.shared_days[0],{uses:0,used_by:[],stored_uses:1,unassigned:[{name:'Maximilians alter Wecker'}]});e.catalog.usage_checked_at='2026-11-13T14:00:00Z';
+ e.click('refresh-usage');await flush();assert.match(e.editor._body.textContent,/Weiterhin gespeicherte Wecker ohne Dashboardkarte: Maximilians alter Wecker/);assert.match(e.editor._body.textContent,/Zuletzt geprüft/);assert(e.editor.shadowRoot.querySelector('[data-action="template-delete"]').disabled);
+ e.fail=true;e.click('refresh-usage');await flush();assert.match(e.editor._body.textContent,/Dashboard konnte nicht geladen werden/);assert.match(e.editor._body.textContent,/Maximilians alter Wecker/);e.fail=false;
+ Object.assign(e.catalog.shared_days[0],{stored_uses:0,unassigned:[]});e.click('refresh-usage');await flush();assert(!e.editor.shadowRoot.querySelector('[data-action="template-delete"]').disabled);assert.equal(e.calls.filter(call=>call.action==='catalog').length,4);e.editor.remove();
 });

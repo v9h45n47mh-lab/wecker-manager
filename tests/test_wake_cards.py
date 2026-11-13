@@ -737,6 +737,52 @@ class WakeCardTests(IsolatedAsyncioTestCase):
         await self.wake.update_card(hass,owner,c['alarm_id'],c['card_id'],original,data['revision'])
         self.assertEqual(entry.options['wake_cards'][c['alarm_id']]['playback']['minutes'],9)
 
+    async def test_settings_and_playback_save_atomically_with_revision_and_selection_validation(self):
+        hass,entry,owner,admin,other,c,_,_=self.fixture();data=await self.wake.create_card(hass,admin,c)
+        stored=deepcopy(entry.options['wake_cards'][c['alarm_id']])
+        settings=deepcopy(data['settings']);settings['volume']=14
+        for policy in [{'mode':'duration','minutes':0},{'mode':'track_end','minutes':5}]:
+            if policy['mode']=='track_end':
+                hass.user_stores[owner.id].data['music_manager_alarm_music'][c['alarm_id']]={'kind':'radio','uri':'media-source://radio_browser/swr3','media_type':'radio','title':'SWR3'}
+            with self.assertRaises(self.wake.AccessError):
+                await self.wake.update_card(hass,owner,c['alarm_id'],c['card_id'],settings,data['revision'],playback=policy)
+            self.assertEqual(entry.options['wake_cards'][c['alarm_id']],stored)
+        policy={'mode':'duration','minutes':9}
+        with self.assertRaises(self.wake.AccessError):
+            await self.wake.update_card(hass,other,c['alarm_id'],c['card_id'],settings,data['revision'],playback=policy)
+        result=await self.wake.update_card(hass,owner,c['alarm_id'],c['card_id'],settings,data['revision'],playback=policy)
+        self.assertEqual(result['settings']['volume'],14);self.assertEqual(result['playback'],policy)
+        with self.assertRaises(self.wake.AccessError):
+            await self.wake.update_card(hass,owner,c['alarm_id'],c['card_id'],data['settings'],data['revision'],playback={'mode':'duration','minutes':3})
+        self.assertEqual(entry.options['wake_cards'][c['alarm_id']]['playback'],policy)
+
+    async def test_usage_refresh_reads_current_nested_cards_and_keeps_unassigned_programs(self):
+        hass,entry,owner,admin,_,c,_,_=self.fixture();data=await self.wake.create_card(hass,admin,c)
+        module=types.ModuleType('homeassistant.components.lovelace.const');module.LOVELACE_DATA='lovelace';module.ConfigNotFound=type('ConfigNotFound',(Exception,),{})
+        self.enterContext(patch.dict(sys.modules,{module.__name__:module}))
+        card={'type':'custom:wecker-manager-card','alarm_id':c['alarm_id'],'card_id':c['card_id']}
+        loader=AsyncMock(return_value={'views':[{'sections':[{'cards':[{'type':'vertical-stack','cards':[card,card,{'type':['unrelated']}]}]}]}]})
+        automatic=NS(mode='storage',config=None,async_load=AsyncMock(side_effect=module.ConfigNotFound))
+        hass.data['lovelace']=NS(dashboards={None:automatic,'maximilian':NS(mode='storage',config={'title':'Maximilian'},async_load=loader)})
+        before=deepcopy(entry.options)
+        result=await self.wake.catalog(hass,admin,refresh_usage=True)
+        self.assertIn('usage_checked_at',result);self.assertTrue(result['shared_days'])
+        for day in result['shared_days']:
+            self.assertEqual(day['uses'],1);self.assertEqual(day['stored_uses'],1);self.assertEqual(day['unassigned'],[])
+            self.assertEqual(day['used_by'][0]['dashboards'],['Maximilian'])
+        loader.assert_awaited_with(force=True)
+        loader.return_value={'views':[{'cards':[{**card,'card_id':'replaced_card'}]}]}
+        result=await self.wake.catalog(hass,admin,refresh_usage=True)
+        for day in result['shared_days']:
+            self.assertEqual(day['uses'],0);self.assertEqual(day['stored_uses'],1);self.assertTrue(day['unassigned']);self.assertEqual(day['used_by'],[])
+        self.assertEqual(entry.options,before)
+        loader.return_value={'views':[{'cards':[{**card,'type':'custom:wecker-manager-status-card'}]}]}
+        self.assertTrue(all(day['uses']==1 for day in (await self.wake.catalog(hass,admin,refresh_usage=True))['shared_days']))
+        loader.side_effect=RuntimeError('YAML broken')
+        with self.assertRaises(self.wake.AccessError):await self.wake.catalog(hass,admin,refresh_usage=True)
+        with self.assertRaises(self.wake.AccessError):await self.wake.catalog(hass,owner,refresh_usage=True)
+        self.assertEqual(entry.options,before)
+
     async def test_fixed_duration_repeats_on_all_bound_queues_and_stops_at_the_actual_deadline(self):
         hass,entry,owner,admin,_,c,_,_=self.fixture();await self.activate(hass,admin,c)
         await self.wake.set_playback(hass,owner,c['alarm_id'],c['card_id'],{'mode':'duration','minutes':9})

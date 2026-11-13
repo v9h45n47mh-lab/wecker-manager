@@ -1,4 +1,4 @@
-# Weckerkarte 1.7.0
+# Weckerkarte 1.7.1
 
 Die Integration führt Wecker zentral in Home Assistant aus. Dashboardkarten zeigen und ändern die zentral gespeicherten Daten. Der separat installierte Music Manager liefert die persönliche Musikauswahl.
 
@@ -58,7 +58,7 @@ Bereits ausgeführte Wecker werden nicht erneut als ausstehend gezählt. Die Vor
 
 ## Abspieldauer der Weckmusik
 
-**Weckmusik → Auswählen** öffnen. Unter **Weckmusik beenden** eine feste Minutendauer oder **Wenn Titel endet** wählen. Mit einem neuen Titel wird die Dauer mitgespeichert. **Dauer übernehmen** speichert nur die Dauer.
+**Zahnrad → Weckmusik → Weckdauer** öffnen. Eine **Feste Dauer** mit Minuten oder **Wenn Titel endet** wählen und unten **Speichern** drücken. **Abbrechen** verwirft den Entwurf. Bereits gespeicherte Dauern bleiben beim Update erhalten. Die Musikauswahl enthält nur die Titel- und Senderauswahl.
 
 Bei einer festen Dauer von 1 bis 1440 Minuten wird der gewählte Titel bei Bedarf wiederholt und zum geplanten Ende gestoppt. Beim Titelende spielt ein einzelner Titel mit ausgeschalteter Wiederholung vollständig aus; eine feste Abschaltfrist gibt es in diesem Modus nicht. Für Radiosender und die letzte Sonos-Wiedergabe ist eine feste Dauer erforderlich. Die Einstellung gilt für alle Tagestypen und Boxen dieser Weckerkarte. Bestehende Wecker behalten zunächst fünf Minuten.
 
@@ -68,7 +68,7 @@ Die feste Abschaltzeit wird in Home Assistant gespeichert und mit einem eigenen 
 
 Uhrzeit antippen und die Räder verwenden. Eine Schnellzeit übernimmt die Zeit sofort. Aktivierung und schaltbare Musik werden zentral gespeichert. Eine konfigurierte Ausschaltbestätigung wird auch serverseitig geprüft.
 
-Unter dem Zahnrad stehen Lautstärke 5–15 %, bis zu drei Schnellzeiten und Sonnenaufgang je Typ. Der Dialog ist höchstens 480 Pixel breit und passt sich kleineren Bildschirmen an. Unten im Dialog stehen Wecker-, Integrations- und UI-Kit-Version. Dimmbare Lichter werden beim Sonnenaufgang bis zur Weckzeit zur zugeordneten Zielhelligkeit aufgeblendet.
+Unter dem Zahnrad stehen Weckdauer, Lautstärke 5–15 %, bis zu drei Schnellzeiten und Sonnenaufgang je Typ. Der Dialog ist höchstens 480 Pixel breit und passt sich kleineren Bildschirmen an. Unten im Dialog stehen Wecker-, Integrations- und UI-Kit-Version. Dimmbare Lichter werden beim Sonnenaufgang bis zur Weckzeit zur zugeordneten Zielhelligkeit aufgeblendet.
 
 ## Kompakte Statusübersicht
 
@@ -79,3 +79,11 @@ Die zusätzliche Karte **Wecker-Status** zeigt je Typ Symbol, An/Aus und die ein
 Pro lokalem Tag, Typ und Phase wird höchstens einmal ausgeführt. Vollständig verpasste Wecker werden nicht nachgeholt. Musik stoppt nach der gewählten festen Dauer; ein überfälliger Stopp wird nach einem Neustart nachgeholt. Sonnenaufgang wird nicht über Mitternacht vorgezogen. Berechtigungen werden bei der Ausführung erneut geprüft.
 
 Zeitpläne bleiben erhalten, wenn eine Dashboardkarte entfernt wird. Zum dauerhaften Beenden zuerst alle Tagestypen ausschalten und danach die Karte entfernen. Eine neu angelegte Karte mit derselben Weckerkennung ersetzt den vorherigen Zeitplan.
+
+## Verwendung der Tagestypen aktualisieren
+
+Unter **Zahnrad → Tagestypen verwalten → Aktualisieren** werden die gespeicherten Dashboardkonfigurationen erneut gelesen. Auch Karten in Abschnitten, Stapeln, bedingten Karten und Unteransichten sowie Statuskarten zählen. Jede gespeicherte Weckerkennung wird pro Tagestyp nur einmal gezählt, unabhängig von der Zahl ihrer Dashboardkopien. Entscheidend sind aktuelle Alarm- und Kartenkennung, nicht frühere Namen oder Aufrufe.
+
+Ein gespeicherter Wecker ohne passende Dashboardkarte wird gesondert als **weiterhin gespeichert** aufgeführt. Das Entfernen seiner Dashboardkarte löscht dessen Programm nicht: Es kann weiter schalten und verwendet seinen Tagestyp weiterhin. Aktualisieren verändert keine Programme oder Aktivierungen. Deshalb bleibt ein solcher Typ vor dem Löschen geschützt. Bei nicht lesbaren Dashboards bleibt der letzte erfolgreich geprüfte Nachweis erhalten und ein Fehler wird angezeigt.
+
+Unter allen Tagestypen der Weckerkarte steht die Legende: **Blau hinterlegt: aktiv in den nächsten 24 Stunden.**

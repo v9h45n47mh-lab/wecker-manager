@@ -28,7 +28,7 @@ function fixture({days,settings:override,header,status=false,admin=false,upcomin
   if(msg.action==='upcoming')return {types:clone(upcoming)};
   if(msg.action==='get')return clone(record);
   if(msg.action==='catalog')return {shared_days:[],calendars:[]};
-  if(msg.action==='update'){if(fail)throw {code:'save_failed',message:'Speichern fehlgeschlagen'};if(msg.revision!==record.revision)throw {code:'conflict',message:'Auf einem anderen Gerät geändert'};record.settings=clone(msg.settings);record.revision++;for(const callback of listeners)callback({data:{alarm_id:'school'}});return clone(record);}
+  if(msg.action==='update'){if(fail)throw {code:'save_failed',message:'Speichern fehlgeschlagen'};if(msg.revision!==record.revision)throw {code:'conflict',message:'Auf einem anderen Gerät geändert'};record.settings=clone(msg.settings);if(msg.playback)record.playback=clone(msg.playback);record.revision++;for(const callback of listeners)callback({data:{alarm_id:'school'}});return clone(record);}
   if(msg.action==='set_playback'){if(fail)throw {code:'save_failed',message:'Speichern fehlgeschlagen'};record.playback=clone(msg.playback);record.revision++;for(const callback of listeners)callback({data:{alarm_id:'school'}});return clone(record);}
   if(msg.action==='set_enabled'){if(fail)throw {code:'save_failed',message:'Speichern fehlgeschlagen'};record.settings.types[msg.kind].enabled=msg.enabled;record.revision++;for(const callback of listeners)callback({data:{alarm_id:'school'}});return clone(record);}
   throw Error('Unbekannte Anfrage');
@@ -50,7 +50,7 @@ test('wake wheel commit, presets and music switches save shared settings',async(
 });
 test('wake settings contain volume, sunrise and at most three presets, never devices or accounts',async()=>{
  const e=fixture();await flush();e.click('settings');await flush();const dialog=e.card.shadowRoot.getElementById('wake-settings-dialog'),slider=dialog.querySelector('#wake-volume');
- assert.equal(slider.getAttribute('min'),'5');assert.equal(slider.getAttribute('max'),'15');assert.equal(dialog.querySelectorAll('select').length,3);assert(dialog.querySelector('#wake-sunrise-setting'));assert.equal(dialog.querySelectorAll('[data-ui-multi]').length,0);assert.equal(dialog.querySelector('[data-action="preset-add"][data-kind="wochenende"]'),null);
+ assert.equal(slider.getAttribute('min'),'5');assert.equal(slider.getAttribute('max'),'15');assert.equal(dialog.querySelectorAll('select').length,4);assert(dialog.querySelector('#wake-sunrise-setting'));assert.equal(dialog.querySelectorAll('[data-ui-multi]').length,0);assert.equal(dialog.querySelector('[data-action="preset-add"][data-kind="wochenende"]'),null);
  slider.value='15';slider.dispatchEvent(new e.window.Event('input',{bubbles:true}));await flush();assert.equal(e.record.settings.volume,10);
  e.click('preset-remove','[data-kind="schultag"][data-slot="0"]');e.click('save-settings');await flush();assert.equal(e.record.settings.volume,15);assert.deepEqual(e.record.settings.types.schultag.presets,['06:15']);e.card.remove();
 });
@@ -153,8 +153,13 @@ test('administrator settings render with supported UI Kit icons and open the sha
  e.card.remove();assert.equal(e.listeners.size,0);
 });
 
-test('shared music row saves playback policy without overwriting wake settings',async()=>{
- const e=fixture();await flush();const row=e.card.shadowRoot.querySelector('music-manager-alarm-row'),settings=clone(e.record.settings);assert.deepEqual(clone(row.playbackSettings.value),{mode:'duration',minutes:5});
- await row.playbackSettings.save({mode:'duration',minutes:9});await flush();assert.equal(e.record.playback.minutes,9);assert.deepEqual(e.record.settings,settings);assert(e.calls.some(call=>call.action==='set_playback'));
- e.fail=true;await assert.rejects(row.playbackSettings.save({mode:'track_end',minutes:9}));assert.equal(e.record.playback.mode,'duration');e.card.remove();
+test('wake settings own playback duration, cancel drafts, and keep failed saves open',async()=>{
+ const e=fixture();await flush();const row=e.card.shadowRoot.querySelector('music-manager-alarm-row');assert.equal(row.playbackSettings,undefined);
+ assert.match(e.card.shadowRoot.getElementById('wake-legend').textContent,/Blau hinterlegt: aktiv in den nächsten 24 Stunden/);
+ const change=(id,value)=>{const el=e.card.shadowRoot.getElementById(id);if(el.tagName==='SELECT'){for(const option of el.options)option.removeAttribute('selected');el.querySelector(`[value="${value}"]`).setAttribute('selected','');}else el.value=value;el.dispatchEvent(new e.window.Event('change',{bubbles:true}));};
+ e.click('settings');change('wake-playback-minutes','9');e.click('cancel-settings');assert.equal(e.record.playback,undefined);
+ e.click('settings');assert.equal(e.card.shadowRoot.getElementById('wake-playback-minutes').value,'5');change('wake-playback-minutes','9');e.click('save-settings');await flush();assert.deepEqual(e.record.playback,{mode:'duration',minutes:9});assert(!e.card._settingsDialog.open);assert(e.calls.some(call=>call.action==='update'&&call.playback?.minutes===9));assert(!e.calls.some(call=>call.action==='set_playback'));
+ e.click('settings');change('wake-playback-minutes','0');const before=e.calls.length;e.click('save-settings');await flush();assert.equal(e.calls.length,before);assert.match(e.card.shadowRoot.getElementById('wake-settings-status').textContent,/1 bis 1440/);change('wake-playback-minutes','9');change('wake-playback-mode','track_end');assert.equal(e.card.shadowRoot.getElementById('wake-playback-minutes'),null);
+ e.fail=true;e.click('save-settings');await flush();assert(e.card._settingsDialog.open);assert.equal(e.record.playback.mode,'duration');assert.equal(e.card._draftPlayback.mode,'track_end');
+ e.fail=false;e.click('save-settings');await flush();assert.equal(e.record.playback.mode,'track_end');assert(!e.card._settingsDialog.open);e.card.remove();
 });
