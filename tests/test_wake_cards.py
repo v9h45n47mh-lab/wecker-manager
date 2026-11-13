@@ -1038,3 +1038,57 @@ class WakeCardTests(IsolatedAsyncioTestCase):
         entry.options['wake_cards'][c['alarm_id']]['stops']=[{'at':self.now.isoformat(),'source':'media_player.sonos'}];before=deepcopy(entry.options)
         with self.assertRaises(self.wake.AccessError):await self.wake.delete_card(hass,admin,c['alarm_id'],c['card_id'],data['revision'])
         self.assertEqual(entry.options,before)
+
+    async def test_managed_policy_defaults_do_not_override_existing_cards_or_legacy_client_saves(self):
+        hass,entry,owner,admin,_,c,_,_=self.fixture();c['days']=[self.custom_day(calendar_entity='')]
+        first=await self.activate(hass,admin,c,kind='arbeit',time='07:23');original=deepcopy(entry.options['wake_cards'][c['alarm_id']])
+        template=entry.options['day_templates'][first['days'][0]['template_id']]
+        raw={key:deepcopy(template[key]) for key in ('id',*self.wake.shared_days.COMMON)}
+        result=await self.wake.save_day_template(hass,admin,{**raw,'music_mode':'switchable','confirm_disable':False},template['revision'])
+        self.assertEqual(result['template']['music_mode'],'switchable');self.assertFalse(result['template']['confirm_disable'])
+        current=entry.options['wake_cards'][c['alarm_id']]
+        self.assertEqual(current['settings'],original['settings']);self.assertEqual(current['days'][0]['music_mode'],'always');self.assertTrue(current['days'][0]['confirm_disable'])
+        legacy=await self.wake.save_day_template(hass,admin,{**raw,'name':'Umbenannt'},result['template']['revision'])
+        self.assertEqual(legacy['template']['music_mode'],'switchable');self.assertFalse(legacy['template']['confirm_disable'])
+        self.assertEqual(entry.options['wake_cards'][c['alarm_id']]['settings'],original['settings'])
+
+    async def test_policy_defaults_migration_keeps_mixed_local_values_and_card_identities(self):
+        hass,entry,owner,admin,_,c,_,_=self.fixture();c['days']=[self.custom_day(calendar_entity='')]
+        first=await self.wake.create_card(hass,admin,c)
+        await self.wake.create_card(hass,admin,{**c,'alarm_id':'second','card_id':'second','days':[{**first['days'][0],'music_mode':'switchable','confirm_disable':False}]})
+        for template in entry.options['day_templates'].values():
+            for key in self.wake.shared_days.POLICIES:template.pop(key,None)
+        original=deepcopy(entry.options['wake_cards'])
+        templates,cards,changed=self.wake.shared_days.migrate(entry.options)
+        self.assertEqual(cards,original);self.assertEqual(changed,[]);self.assertEqual(len(templates),1)
+        default=next(iter(templates.values()));self.assertEqual(default['music_mode'],'switchable');self.assertTrue(default['confirm_disable'])
+        self.assertEqual(default['id'],first['days'][0]['template_id'])
+
+    async def test_explicit_managed_policy_application_updates_all_linked_cards_and_enforces_confirmation(self):
+        hass,entry,owner,admin,other,c,_,_=self.fixture();c['days']=[self.custom_day(calendar_entity='',music_mode='switchable',confirm_disable=False)]
+        first=await self.wake.create_card(hass,admin,c);settings=deepcopy(first['settings']);settings['types']['arbeit'].update(time='07:23',enabled=True,music=False,presets=['07:23'])
+        await self.wake.update_card(hass,owner,c['alarm_id'],c['card_id'],settings,first['revision'])
+        self.add_other_account(hass,other)
+        pc={**c,'owner_id':other.id,'alarm_id':'paul','card_id':'paul','days':[{**first['days'][0],'id':'paul_work'}]}
+        second=await self.wake.create_card(hass,admin,pc);settings=deepcopy(second['settings']);settings['types']['paul_work'].update(time='08:12',enabled=True,music=False,presets=['08:12'])
+        await self.wake.update_card(hass,other,'paul','paul',settings,second['revision'])
+        before=deepcopy(entry.options['wake_cards']);template=entry.options['day_templates'][first['days'][0]['template_id']]
+        raw={key:deepcopy(template[key]) for key in ('id',*self.wake.shared_days.COMMON)}
+        await self.wake.save_day_template(hass,admin,{**raw,'music_mode':'always','confirm_disable':True},template['revision'],True)
+        for alarm_id,local_id in [(c['alarm_id'],'arbeit'),('paul','paul_work')]:
+            actual=entry.options['wake_cards'][alarm_id];expected=deepcopy(before[alarm_id]['settings']);expected['types'][local_id]['music']=True
+            self.assertEqual(actual['settings'],expected);self.assertEqual(actual['binding'],before[alarm_id]['binding']);self.assertEqual(actual['playback'],before[alarm_id]['playback'])
+            self.assertEqual(actual['days'][0]['music_mode'],'always');self.assertTrue(actual['days'][0]['confirm_disable'])
+        with self.assertRaises(self.wake.AccessError) as error:await self.wake.set_enabled(hass,other,'paul','paul','paul_work',False)
+        self.assertEqual(error.exception.code,'confirmation_required');self.assertTrue(entry.options['wake_cards']['paul']['settings']['types']['paul_work']['enabled'])
+
+    async def test_managed_policies_reject_invalid_values_missing_fields_stale_revisions_and_non_admins(self):
+        hass,entry,owner,admin,_,c,_,_=self.fixture();data=await self.wake.create_card(hass,admin,c);template=entry.options['day_templates'][data['days'][0]['template_id']]
+        raw={key:deepcopy(template[key]) for key in ('id',*self.wake.shared_days.COMMON)};before=deepcopy(entry.options)
+        for invalid in [{'music_mode':'invalid','confirm_disable':True},{'music_mode':'always','confirm_disable':1},{}]:
+            with self.assertRaises(self.wake.AccessError):await self.wake.save_day_template(hass,admin,{**raw,**invalid},template['revision'],True)
+            self.assertEqual(entry.options,before)
+        valid={**raw,'music_mode':'always','confirm_disable':True}
+        for caller,revision,apply in [(owner,template['revision'],True),(admin,0,True),(admin,template['revision'],1)]:
+            with self.assertRaises(self.wake.AccessError):await self.wake.save_day_template(hass,caller,valid,revision,apply)
+            self.assertEqual(entry.options,before)

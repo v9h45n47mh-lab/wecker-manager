@@ -136,10 +136,10 @@ test('central day management saves common rules only, retains failed drafts, and
  const e=setup({manager:true,catalog:{shared_days:[used]}});await flush();
  assert.match(e.editor.shadowRoot.querySelector('#setup-body').textContent,/Auf 2 Karten verwendet/);assert(e.editor.shadowRoot.querySelector('[data-action="template-delete"]').disabled);
  assert(!e.calls.some(call=>call.action==='get'));assert(!e.calls.find(call=>call.action==='catalog').owner_id);
- e.click('day-edit','[data-kind="shared"]');assert.equal(e.editor.shadowRoot.querySelector('#day-music,#day-confirm'),null);e.change('day-name','Schule');
+ e.click('day-edit','[data-kind="shared"]');assert.equal(e.editor.shadowRoot.querySelectorAll('#day-music,#day-confirm').length,2);e.change('day-name','Schule');
  e.fail=true;e.click('day-save');await flush();assert.match(e.editor.shadowRoot.querySelector('#setup-day-error').textContent,/fehlgeschlagen/);assert(e.editor._dayDialog.open);
  e.fail=false;e.click('day-save');await flush();assert.equal(e.catalog.shared_days[0].name,'Schule');
- const save=e.calls.findLast(call=>call.action==='save_day_template');assert.deepEqual(Object.keys(save.day_template).sort(),['id','name','display_name','icon','weekdays','calendar_entity','calendar_mode'].sort());assert.equal(save.revision,2);
+ const save=e.calls.findLast(call=>call.action==='save_day_template');assert.deepEqual(Object.keys(save.day_template).sort(),['id','name','display_name','icon','weekdays','calendar_entity','calendar_mode','music_mode','confirm_disable'].sort());assert.equal(save.revision,2);
  e.click('day-add');e.change('day-name','Spätdienst');e.weekdays([5,6]);e.click('day-save');await flush();const day=e.catalog.shared_days[1];
  e.click('template-delete',`[data-kind="${day.id}"]`);assert.equal(e.calls.filter(call=>call.action==='delete_day_template').length,0);
  e.click('template-confirm-delete');await flush();assert.equal(e.catalog.shared_days.length,1);assert.equal(e.calls.find(call=>call.action==='delete_day_template').revision,1);e.editor.remove();
@@ -191,4 +191,17 @@ test('alarm manager refreshes usage and removes administrator data when the user
  const card={alarm_id:'old_alarm',card_id:'old_card',revision:1,name:'Privater Wecker',owner:'Manuel',days:[],speakers:[],dashboards:[],can_delete:true};
  const e=setup({alarms:true,storedCards:[card]});await flush();Object.assign(e.storedCards[0],{dashboards:['Familie'],can_delete:false});e.click('stored-refresh');await flush();assert.match(e.editor._body.textContent,/Keine ungenutzten Wecker/);e.click('stored-filter','[data-filter="all"]');assert(e.editor.shadowRoot.querySelector('[data-action="stored-delete"]').disabled);
  const before=e.calls.length;e.editor.hass={...e.editor._hass,user:{id:'paul',is_admin:false}};await flush();assert.match(e.editor._body.textContent,/nur Administratoren/);assert.doesNotMatch(e.editor._body.textContent,/Privater Wecker/);assert.equal(e.calls.length,before);assert.equal(e.editor.shadowRoot.querySelectorAll('button:not(dialog button)').length,0);e.editor.remove();
+});
+test('central day management saves music and confirmation defaults with explicit application scope',async()=>{
+ const shared={id:'shared',name:'Schultag',display_name:'Schultag',icon:'mdi:school',weekdays:[0],calendar_entity:'',calendar_mode:'no_event',music_mode:'always',confirm_disable:true,revision:2,uses:2};
+ const e=setup({manager:true,catalog:{shared_days:[shared]}});await flush();e.click('day-edit','[data-kind="shared"]');
+ assert.equal(e.editor.shadowRoot.querySelector('#day-music').value,'always');assert.equal(e.editor.shadowRoot.querySelector('#day-confirm').value,'confirm');assert.equal(e.editor.shadowRoot.querySelector('[data-action="day-apply-policies"]').getAttribute('aria-checked'),'false');
+ e.change('day-music','switchable');e.change('day-confirm','click');e.click('day-cancel');assert(!e.calls.some(call=>call.action==='save_day_template'));
+ e.click('day-edit','[data-kind="shared"]');e.change('day-music','switchable');e.change('day-confirm','click');e.click('day-save');await flush();let saved=e.calls.findLast(call=>call.action==='save_day_template');assert.equal(saved.day_template.music_mode,'switchable');assert.equal(saved.day_template.confirm_disable,false);assert.equal(saved.apply_policies,false);
+ e.click('day-edit','[data-kind="shared"]');e.change('day-music','always');e.change('day-confirm','confirm');e.click('day-apply-policies');assert.equal(e.editor.shadowRoot.querySelector('[data-action="day-apply-policies"]').getAttribute('aria-checked'),'true');e.click('day-save');await flush();saved=e.calls.findLast(call=>call.action==='save_day_template');assert.equal(saved.apply_policies,true);assert.equal(saved.day_template.music_mode,'always');assert.equal(saved.day_template.confirm_disable,true);
+ e.click('day-edit','[data-kind="shared"]');assert.equal(e.editor.shadowRoot.querySelector('[data-action="day-apply-policies"]').getAttribute('aria-checked'),'false');e.editor.remove();
+});
+test('new adoption inherits managed defaults while reusing a local type retains its individual policy',async()=>{
+ const shared={id:'shared',name:'Schultag',display_name:'Schultag',icon:'mdi:school',weekdays:[0],calendar_entity:'',calendar_mode:'no_event',music_mode:'always',confirm_disable:true,revision:2,uses:0};
+ const e=setup({catalog:{shared_days:[shared]}});await flush();e.change('setup-shared-day','shared');e.click('day-use');assert.equal(e.editor.shadowRoot.querySelector('#day-music').value,'always');assert.equal(e.editor.shadowRoot.querySelector('#day-confirm').value,'confirm');e.change('day-music','switchable');e.change('day-confirm','click');e.click('day-save');const day=e.events.at(-1).days[0];assert.equal(day.music_mode,'switchable');assert.equal(day.confirm_disable,false);e.editor._openDay(undefined,shared);e.click('day-save');assert.equal(e.events.at(-1).days.length,1);assert.equal(e.events.at(-1).days[0].music_mode,'switchable');assert.equal(e.events.at(-1).days[0].confirm_disable,false);e.editor.remove();
 });

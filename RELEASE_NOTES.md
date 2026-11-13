@@ -1,3 +1,12 @@
+# Wecker 1.10.0
+
+- Unter **Zahnrad → Tagestypen verwalten → Stift** sind jetzt auch **Musik** (immer an oder in der Karte schaltbar) und **Ausschalten des Weckers** (mit einem Klick oder erst nach Bestätigung) einstellbar. Beide Werte sind auch beim Anlegen eines gemeinsamen Tagestyps verfügbar.
+- Neue Übernahmen des Typs verwenden diese Vorgaben. Vorhandene Wecker behalten beim Update und beim Speichern allein der Vorgaben ihre individuellen Einstellungen.
+- Der zusätzliche Schalter **Musik und Ausschaltverhalten auf bestehende Wecker übernehmen** wendet beide Vorgaben ausdrücklich auch auf die aufgeführten Wecker an. Bei „Immer an“ wird deren Musik eingeschaltet. Zeiten, Aktivierungen, Schnellzeiten, Weckdauer und Gerätebindungen bleiben erhalten.
+- Individuelle Anpassungen je Weckerkarte bleiben möglich. Die gemeinsamen Felder, Schalter und Dialoge aus HA UI Kit 1.4.1 werden unverändert verwendet; Berechtigungen und die serverseitige Ausschaltbestätigung bleiben erhalten.
+
+**Update:** Wecker in HACS aktualisieren, Home Assistant neu starten und den Browser mit Strg+F5 neu laden. Ein Music-Manager-Update ist dafür nicht erforderlich.
+
 # Wecker 1.9.0
 
 - Neue eigenständige **Weckerverwaltung unter Zahnrad → Wecker verwalten**. Standardmäßig werden ungenutzte Wecker angezeigt; **Alle** zeigt auch die verwendeten. Name, Benutzer, Tagestypen mit Zeiten, Boxen und aktuelle Kartenverwendung erleichtern die Auswahl.

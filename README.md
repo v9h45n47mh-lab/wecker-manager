@@ -2,12 +2,13 @@
 
 ![Wecker](custom_components/wecker_manager/brand/icon.png)
 
-Home-Assistant-Integration mit vollständig bearbeitbaren Weckerkarten und gemeinsamen Tagestypen. Version **1.9.0**, unverändertes **HA UI Kit 1.4.1**.
+Home-Assistant-Integration mit vollständig bearbeitbaren Weckerkarten und gemeinsamen Tagestypen. Version **1.10.0**, unverändertes **HA UI Kit 1.4.1**.
 
 ## Funktionen
 
 - Eigene Tagestypen mit Namen, Symbolen, Wochentagen und optional einem Kalender. Im Setup festlegen: freie oder gebuchte Kalendertage; nur ganztägige Termine zählen.
-- Einen Tagestyp wie **Schultag** bei Maximilian anlegen und bei Paul aus dem gemeinsamen Katalog verwenden. Namen, Anzeigenamen, Symbole, Wochentage und Kalenderregeln werden gemeinsam gepflegt. Der Name identifiziert den Typ in der Verwaltung, der Anzeigename beschriftet die Karte. Uhrzeiten, Aktivierungen, Musikverhalten und Ausschaltbestätigungen bleiben je Karte getrennt.
+- Einen Tagestyp wie **Schultag** bei Maximilian anlegen und bei Paul aus dem gemeinsamen Katalog verwenden. Namen, Anzeigenamen, Symbole, Wochentage und Kalenderregeln werden gemeinsam gepflegt. Der Name identifiziert den Typ in der Verwaltung, der Anzeigename beschriftet die Karte. Uhrzeiten und Aktivierungen bleiben je Karte getrennt.
+- In der Tagestypenverwaltung **Musik** (immer an oder schaltbar) und **Ausschalten des Weckers** (direkt oder nach Bestätigung) vorgeben. Neue Übernahmen verwenden diese Vorgaben. Mit **Musik und Ausschaltverhalten auf bestehende Wecker übernehmen** werden sie ausdrücklich auch auf die aufgeführten Wecker angewendet; individuelle Änderungen je Karte bleiben möglich.
 - Zentrale Verwaltung unter **Zahnrad → Tagestypen verwalten**: Mit **Aktualisieren** die aktuellen Dashboardkarten prüfen; gespeicherte Wecker ohne Dashboardkarte werden getrennt angezeigt und können beim Löschen ungenutzter Typen mit aufgeräumt werden. Anlegen, gemeinsame Regeln ändern, verwendende Weckerkarten und Benutzer sehen und unbenutzte Typen löschen. Wiederholtes Übernehmen fügt keinen zweiten Wecker hinzu.
 - **Zahnrad → Wecker verwalten:** Ungenutzte Wecker gezielt löschen. Die Übersicht zeigt Benutzer, Weckzeiten, Boxen und die aktuelle Kartenverwendung; gemeinsame Tagestypen bleiben erhalten.
 - Im Setup unter **Licht → betreffende Lampe bearbeiten** deren Hue-Szene wählen. Die gespeicherten Szenenwerte werden nur auf diese Lampe angewendet; weitere Lampen der Szene bleiben unberührt.

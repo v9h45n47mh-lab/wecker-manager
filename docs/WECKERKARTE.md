@@ -1,4 +1,4 @@
-# Weckerkarte 1.9.0
+# Weckerkarte 1.10.0
 
 Die Integration führt Wecker zentral in Home Assistant aus. Dashboardkarten zeigen und ändern die zentral gespeicherten Daten. Der separat installierte Music Manager liefert die persönliche Musikauswahl.
 
@@ -6,7 +6,7 @@ Die Integration führt Wecker zentral in Home Assistant aus. Dashboardkarten zei
 
 Im Karteneditor beziehungsweise als Administrator unter **Zahnrad → Gesamte Karte bearbeiten** stehen dieselben fünf Schritte zur Verfügung:
 
-1. **Tagestypen:** Zuerst den Namen des gesamten Weckers festlegen. Einen gemeinsamen Tagestyp übernehmen oder einen neuen Namen und Anzeigenamen, ein Symbol und die gültigen Wochentage festlegen. Optional Kalender und freie/gebuchte Tage wählen. Musikverhalten und Ausschaltbestätigung gelten je Karte.
+1. **Tagestypen:** Zuerst den Namen des gesamten Weckers festlegen. Einen gemeinsamen Tagestyp übernehmen oder einen neuen Namen und Anzeigenamen, ein Symbol und die gültigen Wochentage festlegen. Optional Kalender und freie/gebuchte Tage wählen. Neue Übernahmen erhalten Musikverhalten und Ausschaltbestätigung aus der gemeinsamen Vorgabe; beide können je Karte angepasst werden.
 2. **Musik:** Persönliches Musikkonto und eine oder mehrere freigegebene Sonos-Boxen wählen.
 3. **Rollläden:** Optional Geräte und deren Zielpositionen wählen.
 4. **Licht:** Optional Geräte wählen und einzeln einstellen oder eine passende Hue-Szene auswählen.
@@ -37,6 +37,10 @@ Die Verwaltung ist auch über **Wecker verwalten** im Platzhalter einer noch nic
 ## Tagestypen verwalten
 
 Als Administrator **Zahnrad → Tagestypen verwalten** öffnen. Hier können gemeinsame Typen unabhängig von einer Karte angelegt, ihre Regeln bearbeitet und unbenutzte Typen gelöscht werden. Die Liste und der Bearbeitungsdialog zeigen, in welchen Weckerkarten und bei welchen Benutzern der Tagestyp verwendet wird. Zum Löschen eines verwendeten Typs muss er zunächst aus diesen Karten entfernt werden; aktive Typen können dabei eine Ausschaltbestätigung verlangen.
+
+Im Bearbeitungsdialog (Stift) stehen außerdem **Musik → Immer an / In der Karte ein-/ausschaltbar** und **Ausschalten des Weckers → Mit einem Klick / Erst nach Bestätigung**. Diese Vorgaben gelten für neue Übernahmen des Tagestyps. Vorhandene Wecker behalten ihre individuellen Einstellungen, auch beim Update.
+
+Mit **Musik und Ausschaltverhalten auf bestehende Wecker übernehmen** werden die beiden ausgewählten Werte beim Übernehmen auch in den aufgeführten bestehenden Weckern gesetzt. Bei **Immer an** wird deren Musik eingeschaltet. Weckzeiten, Aktivierungen, Schnellzeiten, Weckdauer und Gerätebindungen bleiben erhalten. Ohne diesen Schalter werden nur die Vorgaben geändert. Individuelle Anpassungen über **Gesamte Karte bearbeiten → Tagestypen** sind weiterhin möglich.
 
 Beim Übernehmen eines bereits vorhandenen Typs bleibt dessen lokale Kennung erhalten. Identische Katalogeinträge werden zusammengeführt, ohne persönliche Weckzeiten zu entfernen. Wenn schon mehrere getrennte Wecker mit unterschiedlichen lokalen Kennungen bestehen, können diese bewusst im Karteneditor entfernt werden.
 

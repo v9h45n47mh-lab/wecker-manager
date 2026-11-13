@@ -9,6 +9,11 @@ from .day_types import day_definitions, settings_for_days
 
 LIBRARY = "day_templates"
 COMMON = ("name", "display_name", "icon", "weekdays", "calendar_entity", "calendar_mode")
+POLICIES = ("music_mode", "confirm_disable")
+
+
+def policies(day):
+    return {"music_mode": day.get("music_mode", "switchable"), "confirm_disable": day.get("confirm_disable", False)}
 
 
 def common(day):
@@ -34,9 +39,22 @@ def migrate(options):
     """Link existing definitions without changing local IDs, times or policies."""
     templates = deepcopy(options.get(LIBRARY, {}))
     cards = deepcopy(options.get("wake_cards", {}))
+    inherited = {}
+    for record in cards.values():
+        for day in day_definitions(record):
+            if key := day.get("template_id"):
+                inherited.setdefault(key, []).append(policies(day))
     by_rule, aliases = {}, {}
     for key, template in list(templates.items()):
         template.update(common(template))
+        candidates = inherited.get(key, [])
+        for field, fallback in (("music_mode", "switchable"), ("confirm_disable", False)):
+            values = {day[field] for day in candidates}
+            # These defaults do not replace any existing card's local policy.
+            inferred = next(iter(values)) if len(values) == 1 else fallback
+            if field == "confirm_disable" and len(values) > 1:
+                inferred = True
+            template.setdefault(field, inferred)
         rule = signature(template)
         if rule in by_rule:
             canonical = by_rule[rule]
@@ -69,7 +87,7 @@ def migrate(options):
                 day["template_id"] = key
                 modified = True
             if key not in templates:
-                templates[key] = {"id": key, **common(day), "revision": 1}
+                templates[key] = {"id": key, **common(day), **policies(day), "revision": 1}
                 by_rule[signature(day)] = key
                 original, count = templates[key]["name"], 1
                 while templates[key]["name"].casefold() in names:
@@ -125,7 +143,7 @@ def apply(templates, cards, alarm_id, record, days):
         revision = previous["revision"] if previous else 0
         if not previous or common(previous) != common(day):
             revision += 1
-        edits[key] = {"id": key, **common(day), "revision": revision}
+        edits[key] = {"id": key, **common(day), **policies(previous or day), "revision": revision}
         day.update(template_id=key, template_revision=revision)
     templates.update(edits)
     cards[alarm_id] = {**deepcopy(record), "days": days, "settings": settings_for_days(record, days)}

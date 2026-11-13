@@ -382,7 +382,8 @@ class MusicManagerAlarmCardEditor extends HTMLElement {
   _openDay(kind,shared=null){
     const day=this._config.days.find(d=>d.id===kind)||(shared?existingDay(this._config.days,{...shared,template_id:shared.id}):null);
     this._dayEdit=day?{...copy(day),calendar_mode:calendarMode(day)}:{id:freshId().replace('wake_','day_'),name:'',icon:'mdi:alarm',weekdays:[],music_mode:'switchable',confirm_disable:false,calendar_entity:'',calendar_mode:'no_event'};
-    if(shared)Object.assign(this._dayEdit,{name:shared.name,display_name:shared.display_name||shared.name,icon:shared.icon,weekdays:copy(shared.weekdays),calendar_entity:shared.calendar_entity,calendar_mode:shared.calendar_mode,template_id:shared.id,template_revision:shared.revision});
+    if(shared)Object.assign(this._dayEdit,{name:shared.name,display_name:shared.display_name||shared.name,icon:shared.icon,weekdays:copy(shared.weekdays),calendar_entity:shared.calendar_entity,calendar_mode:shared.calendar_mode,template_id:shared.id,template_revision:shared.revision,...(!day?{music_mode:shared.music_mode||'switchable',confirm_disable:shared.confirm_disable??false}:{})});
+    this._applyPolicies=false;
     this._displayLinked=!day?.display_name&&!shared?.display_name;
     const d=this._dayEdit;d.display_name=dayTitle(d)||'';
     const symbols=DAY_SYMBOLS.some(s=>s.value===d.icon)?DAY_SYMBOLS:[...DAY_SYMBOLS,{value:d.icon,label:'Bisheriges Symbol'}];
@@ -390,11 +391,13 @@ class MusicManagerAlarmCardEditor extends HTMLElement {
     this.shadowRoot.getElementById('setup-day-body').innerHTML=field({id:'day-name',label:'Name des Tagestyps',value:d.name,required:true,maxLength:60,hint:'Eindeutiger Name für Verwaltung und Auswahl.'})+field({id:'day-display-name',label:'Anzeigename auf der Weckerkarte',value:d.display_name,required:true,maxLength:60})+
       `<div class="setup-day-icon"><ha-icon id="day-icon-preview" icon="${escapeHtml(d.icon)}" aria-hidden="true"></ha-icon>${selectField({id:'day-icon',label:'Symbol',value:d.icon,options:symbols})}</div>`+
       weekdayPicker({id:'day-weekdays',label:'Gilt an diesen Wochentagen',values:d.weekdays,action:'day-weekdays'})+
-      (this.dayManager?'':selectField({id:'day-music',label:'Musik',value:d.music_mode,options:[{value:'always',label:'Immer an'},{value:'switchable',label:'In der Karte ein-/ausschaltbar'}]})+
-      selectField({id:'day-confirm',label:'Ausschalten des Weckers',value:d.confirm_disable?'confirm':'click',options:[{value:'click',label:'Mit einem Klick'},{value:'confirm',label:'Erst nach Bestätigung'}]}))+
+      selectField({id:'day-music',label:'Musik',value:d.music_mode,options:[{value:'always',label:'Immer an'},{value:'switchable',label:'In der Karte ein-/ausschaltbar'}]})+
+      selectField({id:'day-confirm',label:'Ausschalten des Weckers',value:d.confirm_disable?'confirm':'click',options:[{value:'click',label:'Mit einem Klick'},{value:'confirm',label:'Erst nach Bestätigung'}]})+
+      (this.dayManager?'<p class="hint">Vorgaben für neue Übernahmen dieses Tagestyps.</p>': '')+
       selectField({id:'day-calendar',label:'Kalender prüfen (optional)',value:d.calendar_entity,options:[{value:'',label:'Ohne Kalenderprüfung'},...this._catalog.calendars.map(c=>({value:c.id,label:c.label}))]})+
-      `<div id="day-calendar-condition"${d.calendar_entity?'':' hidden'}>${selectField({id:'day-calendar-mode',label:'Wecken an',value:d.calendar_mode,disabled:!d.calendar_entity,options:[{value:'no_event',label:'Freien Kalendertagen'},{value:'event',label:'Gebuchten Kalendertagen'}],hint:'Frei: kein ganztägiger Termin. Gebucht: mindestens ein ganztägiger Termin. Nur ganztägige Termine zählen; Termine mit Uhrzeit werden ignoriert.'})}</div>`+(d.template_id?notice(this.dayManager?'Änderungen gelten auf allen Karten mit diesem Tagestyp. Persönliche Weckzeiten, Aktivierungen und Musik bleiben erhalten.':'Name, Symbol, Wochentage und Kalenderregeln werden gemeinsam verwendet. Änderungen gelten auch auf anderen Karten mit diesem Tagestyp. Musik und Ausschaltbestätigung gelten nur für diese Karte.'):'');
+      `<div id="day-calendar-condition"${d.calendar_entity?'':' hidden'}>${selectField({id:'day-calendar-mode',label:'Wecken an',value:d.calendar_mode,disabled:!d.calendar_entity,options:[{value:'no_event',label:'Freien Kalendertagen'},{value:'event',label:'Gebuchten Kalendertagen'}],hint:'Frei: kein ganztägiger Termin. Gebucht: mindestens ein ganztägiger Termin. Nur ganztägige Termine zählen; Termine mit Uhrzeit werden ignoriert.'})}</div>`+(d.template_id?notice(this.dayManager?'Name, Symbol, Wochentage und Kalenderregeln gelten auf allen Karten mit diesem Tagestyp. Persönliche Weckzeiten und Aktivierungen bleiben erhalten.':'Name, Symbol, Wochentage und Kalenderregeln werden gemeinsam verwendet. Änderungen gelten auch auf anderen Karten mit diesem Tagestyp. Musik und Ausschaltbestätigung gelten nur für diese Karte.'):'');
     const template=this._catalog.shared_days.find(item=>item.id===d.template_id);if(template)this.shadowRoot.getElementById('setup-day-body').insertAdjacentHTML('beforeend',notice(usageText(template)));
+    if(this.dayManager&&(template?.stored_uses??template?.uses)>0)this.shadowRoot.getElementById('setup-day-body').insertAdjacentHTML('beforeend',row({title:'Musik und Ausschaltverhalten auf bestehende Wecker übernehmen',trailing:toggle({label:'Musik und Ausschaltverhalten auf bestehende Wecker übernehmen',action:'day-apply-policies',checked:false,iconOnly:true})})+'<p class="hint">Die beiden Vorgaben ersetzen dann die Einstellungen in den oben aufgeführten Weckern. Weckzeiten und Aktivierungen bleiben erhalten.</p>');
     this._dayDialog.showModal();
   }
   _saveDay(){
@@ -572,14 +575,14 @@ class WeckerManagerDayManager extends MusicManagerAlarmCardEditor {
     try{
       const response=await this._hass.callWS({type:'wecker_manager/card',action:'catalog',refresh_usage:true});if(epoch!==this._epoch)return;
       this._catalog={shared_days:list(response.shared_days),calendars:list(response.calendars),usage_checked_at:response.usage_checked_at};
-      this._config.days=this._catalog.shared_days.map(day=>({...copy(day),template_id:day.id,template_revision:day.revision,music_mode:'switchable',confirm_disable:false}));
+      this._config.days=this._catalog.shared_days.map(day=>({...copy(day),template_id:day.id,template_revision:day.revision,music_mode:day.music_mode||'switchable',confirm_disable:day.confirm_disable??false}));
       this._loadedKey='templates';this._error='';
     }catch(error){if(epoch===this._epoch)this._error=message(error);}
     finally{if(epoch===this._epoch){this._loading=false;this._render();if(this._again){this._again=false;queueMicrotask(()=>this._load(true));}}}
   }
   _render(){
     if(!this._body)return;const busy=this._creating||this._loading;
-    this._body.innerHTML=notice('Tagestypen stehen allen Weckerkarten zur Verfügung. Name, Symbol, Wochentage und Kalenderregeln werden gemeinsam gepflegt. Weckzeiten, Aktivierung und Musik bleiben je Karte getrennt.')+
+    this._body.innerHTML=notice('Tagestypen stehen allen Weckerkarten zur Verfügung. Name, Symbol, Wochentage und Kalenderregeln werden gemeinsam gepflegt. Musik und Ausschaltverhalten können als Vorgaben hinterlegt werden. Weckzeiten, Aktivierung und Musikschalter bleiben je Karte getrennt.')+
       button({label:'Aktualisieren',action:'refresh-usage',disabled:busy})+(this._catalog?.usage_checked_at?`<p class="hint">Zuletzt geprüft: ${escapeHtml(new Date(this._catalog.usage_checked_at).toLocaleString('de-DE'))}</p>`:'')+
       (this._error?notice(this._error,{error:true})+button({label:'Erneut laden',action:'editor-reload',disabled:busy}):'')+
       (this._loading?loadingState('Tagestypen werden geladen …'):'')+
@@ -589,10 +592,10 @@ class WeckerManagerDayManager extends MusicManagerAlarmCardEditor {
   async _saveDay(){
     const day=this._dayEdit;if(!day||this._creating)return;day.name=this.shadowRoot.getElementById('day-name').value.trim();day.display_name=this.shadowRoot.getElementById('day-display-name').value.trim();
     if(!day.name||day.name.length>60||!day.display_name||day.display_name.length>60||!day.weekdays.length){this.shadowRoot.getElementById('setup-day-error').innerHTML=notice('Bitte Namen, Anzeigenamen und mindestens einen Wochentag wählen.',{error:true});return;}
-    const epoch=this._epoch,raw=Object.fromEntries(['id','name','display_name','icon','weekdays','calendar_entity','calendar_mode'].map(key=>[key,copy(day[key])]));
+    const epoch=this._epoch,raw=Object.fromEntries(['id','name','display_name','icon','weekdays','calendar_entity','calendar_mode','music_mode','confirm_disable'].map(key=>[key,copy(day[key])]));
     this._creating=true;this._dialogBusy(true);this._render();
     try{
-      await this._hass.callWS({type:'wecker_manager/card',action:'save_day_template',day_template:raw,revision:day.template_revision||0});if(epoch!==this._epoch)return;
+      await this._hass.callWS({type:'wecker_manager/card',action:'save_day_template',day_template:raw,revision:day.template_revision||0,apply_policies:this._applyPolicies});if(epoch!==this._epoch)return;
       this._dayDialog.close();this._again=false;this._loadedKey=null;
     }catch(error){if(epoch===this._epoch)this.shadowRoot.getElementById('setup-day-error').innerHTML=notice(message(error),{error:true});}
     finally{if(epoch===this._epoch){this._creating=false;this._dialogBusy(false);this._render();if(!this._dayDialog.open)this._load(true);}}
@@ -605,6 +608,7 @@ class WeckerManagerDayManager extends MusicManagerAlarmCardEditor {
   }
   _action(event){
     if(this._creating||this._loading)return;
+    if(event.action==='day-apply-policies'){this._applyPolicies=Boolean(event.checked);event.element.setAttribute('aria-checked',String(this._applyPolicies));event.element.classList.toggle('on',this._applyPolicies);return;}
     if(event.action==='refresh-usage'){this._load(true);return;}
     if(event.action==='template-delete'){const day=this._catalog?.shared_days.find(day=>day.id===event.data.kind);if(day&&!day.uses){this._deleteTarget=copy(day);this._templateConfirm.querySelector('.modal-body p').textContent='„'+day.name+'“ aus der gemeinsamen Auswahl löschen?'+(list(day.unassigned).length?' Dabei werden diese gespeicherten Wecker ohne Dashboardkarte entfernt: '+usageNames(day.unassigned)+'.':'');this._templateConfirm.showModal();}return;}
     if(event.action==='template-confirm-delete'){this._deleteTemplate();return;}
