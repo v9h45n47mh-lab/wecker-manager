@@ -51,7 +51,7 @@ let browser;
  assert(await editor.locator('#wake-kelvin-0').count());
  assert.equal(await page.evaluate(()=>wakeDemo.edited.speakers.length),2);assert.equal(await page.evaluate(()=>wakeDemo.edited.covers[0].position),65);
  await page.evaluate(async()=>{const config=wakeDemo.edited;await wakeDemo.makeHass().callWS({type:'wecker_manager/card',action:'create',config});wakeDemo.editor._loadedKey=null;await wakeDemo.editor._load(true);});
- await editor.getByText('Musikkonto, Boxen, Rollläden und Lichter sind festgelegt.',{exact:false}).waitFor();assert.equal(await editor.locator('select').count(),0);assert.match(await editor.innerText(),/festgelegt/);
+ await editor.getByText('Musikkonto, Boxen, Rollläden und Lichter sind festgelegt.',{exact:false}).waitFor();assert.equal(await editor.locator('select').count(),0);assert.match(await editor.locator('.notice').innerText(),/festgelegt/);
  await page.evaluate(()=>wakeDemo.switchUser('paul'));await card().getByRole('alert').waitFor();assert.equal(await action('time').count(),0);
  assert.deepEqual(errors,[]);console.log('PASS universal wake card: wheels, settings, fixed multi-device editor, account isolation, live sync, 18 theme/layout screenshots');
 })().catch(error=>{console.error(error);process.exitCode=1;}).finally(async()=>{await browser?.close();server.close();});
