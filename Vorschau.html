@@ -5,7 +5,7 @@ body{margin:0;padding:20px 12px;background:#f3f5f7;--primary-color:#03a9f4;--pri
 body.dark{background:#10151c;--primary-text-color:#f2f4f6;--secondary-text-color:#b2bcc8;--card-background-color:#1b222c;--ha-card-background:#1b222c;--secondary-background-color:#252f3b;--divider-color:#394451}
 main{max-width:540px;margin:auto}#editor{margin-top:20px}button#theme{display:block;margin:0 auto 12px;padding:8px 16px}
 </style><button id="theme">Hell / Dunkel</button><main><div id="card"></div><div id="editor"></div></main>
-<script type="module">/* Wecker 1.10.0 | MIT | HA UI Kit 1.4.1 bundled unchanged */
+<script type="module">/* Wecker 1.10.1 | MIT | HA UI Kit 1.4.1 bundled unchanged */
 const WeckerManagerUI=(()=>{
 /* HA UI Kit 1.4.1 | MIT | Source priority: Shutter, Light, Essensplaner, Haushalt, Spuelmaschine, Access */
 const UI_VERSION = "1.4.1";
@@ -584,7 +584,7 @@ return {UI_VERSION,UI_CSS,ICON_NAMES,icon,MUSIC_PLAYER_CSS,escapeHtml,button,pro
 (()=>{
 const {UI_CSS, navigation, row, section, button, iconButton, filterButton, toggle, dialog, confirmDialog, field, selectField, rangeControl, multiSelect, whiteTemperatureControl, colourPicker, weekdayPicker, notice, loadingState, versionInfo, bindUI, escapeHtml} = WeckerManagerUI;
 
-const CARD_VERSION='1.10.0';
+const CARD_VERSION='1.10.1';
 
 const defaultDays = (calendar='') => [
   {id:'schultag',name:'Schultag',icon:'mdi:school',weekdays:[0,1,2,3,4],music_mode:'always',confirm_disable:true,calendar_entity:calendar},
@@ -673,7 +673,8 @@ class MusicManagerAlarmCard extends HTMLElement {
       :host{min-width:0}.wake-head{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px;align-items:start}#wake-music{min-width:0}
       .wake-type{min-width:0;border-top:1px solid var(--divider-color,#ddd)}.wake-row{display:grid;grid-template-columns:var(--fui-touch) minmax(0,1fr);gap:var(--fui-section-padding);align-items:center}
       .wake-symbol{display:grid;place-items:center;color:var(--primary-color,#03a9f4)}.wake-symbol ha-icon{display:block;width:var(--fui-icon);height:var(--fui-icon);--mdc-icon-size:var(--fui-icon)}
-      .wake-day-symbol{color:var(--primary-color,#03a9f4)}.wake-type.active{background:color-mix(in srgb,var(--primary-color,#03a9f4) 6%,transparent);border-radius:8px}
+      .wake-day-symbol{color:var(--primary-color,#03a9f4)}.wake-type.active{background:color-mix(in srgb,var(--primary-color,#03a9f4) 14%,transparent);border-radius:8px}
+      #wake-legend{border-top:1px solid var(--divider-color,#ddd);padding-top:var(--fui-section-padding)}
       .wake-row>.setting-row{min-width:0}
       .wake-presets{display:flex;justify-content:flex-start;gap:8px;flex-wrap:wrap;padding:var(--fui-row-padding) 0 var(--fui-section-padding)}.wake-presets .filter-button{flex:0 0 auto;margin:0}.wake-presets:empty{display:none}
       @media(max-width:360px){.wake-row{grid-template-columns:var(--fui-icon) minmax(0,1fr)}}
@@ -1266,7 +1267,7 @@ class WeckerManagerStatusCard extends MusicManagerAlarmCard {
   getCardSize(){return Math.ceil((48+(this._data?.days?.length||3)*40)/50);}
   _ensure(){
     if(!this._config||this._body)return;
-    this.shadowRoot.innerHTML=`<style>${UI_CSS}.status-title{padding:16px 16px 8px}.status-content{padding:0 16px 12px}.status-line{display:grid;grid-template-columns:var(--fui-icon) 12px minmax(0,1fr) auto;align-items:center;gap:4px;min-height:var(--fui-touch)}.status-time{text-align:end;white-space:nowrap;font-variant-numeric:tabular-nums}.wake-symbol{display:grid;place-items:center;color:var(--primary-color,#03a9f4)}.status-line.active{background:color-mix(in srgb,var(--primary-color,#03a9f4) 6%,transparent);border-radius:8px}.wake-symbol ha-icon{display:block;width:var(--fui-icon);height:var(--fui-icon);--mdc-icon-size:var(--fui-icon)}.status-dot{display:inline-block;width:12px;height:12px;border-radius:50%;background:var(--secondary-text-color,#727272)}.status-dot.on{background:var(--primary-color,#03a9f4)}</style><ha-card><h3 class="status-title" id="status-title"></h3><div class="status-content"><div id="status-error" aria-live="polite"></div><div id="status-types"></div></div></ha-card>`;
+    this.shadowRoot.innerHTML=`<style>${UI_CSS}.status-title{padding:16px 16px 8px}.status-content{padding:0 16px 12px}.status-line{display:grid;grid-template-columns:var(--fui-icon) 12px minmax(0,1fr) auto;align-items:center;gap:4px;min-height:var(--fui-touch)}.status-time{text-align:end;white-space:nowrap;font-variant-numeric:tabular-nums}.wake-symbol{display:grid;place-items:center;color:var(--primary-color,#03a9f4)}.status-line.active{background:color-mix(in srgb,var(--primary-color,#03a9f4) 14%,transparent);border-radius:8px}.wake-symbol ha-icon{display:block;width:var(--fui-icon);height:var(--fui-icon);--mdc-icon-size:var(--fui-icon)}.status-dot{display:inline-block;width:12px;height:12px;border-radius:50%;background:var(--secondary-text-color,#727272)}.status-dot.on{background:var(--primary-color,#03a9f4)}</style><ha-card><h3 class="status-title" id="status-title"></h3><div class="status-content"><div id="status-error" aria-live="polite"></div><div id="status-types"></div></div></ha-card>`;
     this._body=this.shadowRoot.getElementById('status-types');this._render();
   }
   _accept(data){if(data.exists)this._config={...this._config,...copy(data.binding)};this._data=data;this._dayKey=null;this._loadDay();}
@@ -1310,7 +1311,7 @@ const records=new Map(),dashboardRefs=new Set([config.alarm_id+'|'+config.card_i
 const binding=({type,name,days,header,...rest})=>rest;
 const schoolTemplate={id:'day_shared_school',name:'Schultag',icon:'mdi:school',weekdays:[0,1,2,3,4],calendar_entity:'calendar.school',calendar_mode:'no_event',music_mode:'always',confirm_disable:true,revision:1,uses:1,used_by:[{name:'Maximilians Wecker',owner:'Maximilian'}]};catalog.shared_days=[schoolTemplate];
 const initialDays=[{...schoolTemplate,id:'schultag',template_id:schoolTemplate.id,template_revision:1,music_mode:'always',confirm_disable:true},{id:'wochenende',name:'Wochenende',icon:'mdi:weather-sunny',weekdays:[5,6],music_mode:'switchable',confirm_disable:false,calendar_entity:'',calendar_mode:'event'},{id:'ferien',name:'Ferien / schulfrei',icon:'mdi:palm-tree',weekdays:[0,1,2,3,4],music_mode:'switchable',confirm_disable:false,calendar_entity:'calendar.school',calendar_mode:'event'}].map(({revision,uses,...day})=>day);
-records.set(config.alarm_id,{exists:true,binding:binding(config),name:config.name,version:'1.10.0',days:initialDays,settings:clone(settings),revision:1});
+records.set(config.alarm_id,{exists:true,binding:binding(config),name:config.name,version:'1.10.1',days:initialDays,settings:clone(settings),revision:1});
 const forecast={schultag:true,wochenende:false,ferien:false};
 const policies=day=>({music_mode:day.music_mode||'switchable',confirm_disable:day.confirm_disable??false});
 const commonKeys=['name','display_name','icon','weekdays','calendar_entity','calendar_mode'];
@@ -1362,7 +1363,7 @@ const makeHass=()=>({user:{id:user,is_admin:user==='admin'},connection,states:{}
  if(msg.action==='day_info')return {date:msg.day_offset===0?'2026-11-13':'2026-11-14',kind:'wochenende',label:msg.day_offset===0?'Heute ist Schultag':'Morgen ist Wochenende'};
  if(msg.action==='upcoming')return {types:Object.fromEntries(Object.entries(record.settings.types).map(([id,item])=>[id,{active:item.enabled&&Boolean(forecast[id]),label:'14.11. 06:00'}]))};
  if(msg.action==='get')return record&&record.binding.card_id===msg.card_id?clone(record):{exists:false,can_create:user==='admin',replaces_card:!!record};
- if(msg.action==='create'){if(record?.binding.card_id===msg.config.card_id&&JSON.stringify(record.binding)!==JSON.stringify(binding(msg.config)))throw Error('Geräte sind festgelegt.');const next={exists:true,binding:binding(msg.config),name:msg.config.name,version:'1.10.0',days:clone(msg.config.days),settings:{...clone(settings),types:Object.fromEntries(msg.config.days.map(d=>[d.id,{...(clone(settings.types[d.id]||{time:'06:00',music:false,presets:[]})),enabled:false,music:d.music_mode==='always',calendar_mode:d.calendar_mode,sunrise_minutes:0}]))},revision:1};records.set(msg.config.alarm_id,next);dashboardRefs.add(msg.config.alarm_id+'|'+msg.config.card_id);sharedUpdate(next,msg.config.days);notify(msg.config.alarm_id);return clone(next);}
+ if(msg.action==='create'){if(record?.binding.card_id===msg.config.card_id&&JSON.stringify(record.binding)!==JSON.stringify(binding(msg.config)))throw Error('Geräte sind festgelegt.');const next={exists:true,binding:binding(msg.config),name:msg.config.name,version:'1.10.1',days:clone(msg.config.days),settings:{...clone(settings),types:Object.fromEntries(msg.config.days.map(d=>[d.id,{...(clone(settings.types[d.id]||{time:'06:00',music:false,presets:[]})),enabled:false,music:d.music_mode==='always',calendar_mode:d.calendar_mode,sunrise_minutes:0}]))},revision:1};records.set(msg.config.alarm_id,next);dashboardRefs.add(msg.config.alarm_id+'|'+msg.config.card_id);sharedUpdate(next,msg.config.days);notify(msg.config.alarm_id);return clone(next);}
  if(msg.action==='configure_days'||msg.action==='configure'){if(user!=='admin')throw Error('Keine Berechtigung');if(msg.revision!==record.revision)throw {code:'conflict',message:'Auf einem anderen Gerät geändert.'};const previous=record.settings.types,days=msg.days||msg.config.days;if(msg.config){record.binding=binding(msg.config);record.name=msg.config.name;}sharedUpdate(record,days);record.settings.types=Object.fromEntries(record.days.map(d=>[d.id,{...(previous[d.id]||{time:'06:00',enabled:false,music:d.music_mode==='always',presets:[],sunrise_minutes:0}),calendar_mode:d.calendar_mode}]));record.revision++;notify(msg.alarm_id||msg.config.alarm_id);return clone(record);}
  if(msg.action==='set_playback'){if(fail)throw Error('Speichern fehlgeschlagen');record.playback=clone(msg.playback);record.revision++;notify(msg.alarm_id);return clone(record);}
  if(msg.action==='set_enabled'){if(fail)throw {code:'save_failed',message:'Speichern fehlgeschlagen'};const day=record.days?.find(d=>d.id===msg.kind);if((day?.confirm_disable||msg.kind==='schultag')&&record.settings.types[msg.kind].enabled&&!msg.enabled&&!msg.confirm_disable?.includes(msg.kind))throw {code:'confirmation_required',message:'Ausschalten bitte bestätigen'};record.settings.types[msg.kind].enabled=msg.enabled;record.revision++;notify(msg.alarm_id);return clone(record);}

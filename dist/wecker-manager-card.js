@@ -1,4 +1,4 @@
-/* Wecker 1.10.0 | MIT | HA UI Kit 1.4.1 bundled unchanged */
+/* Wecker 1.10.1 | MIT | HA UI Kit 1.4.1 bundled unchanged */
 const WeckerManagerUI=(()=>{
 /* HA UI Kit 1.4.1 | MIT | Source priority: Shutter, Light, Essensplaner, Haushalt, Spuelmaschine, Access */
 const UI_VERSION = "1.4.1";
@@ -577,7 +577,7 @@ return {UI_VERSION,UI_CSS,ICON_NAMES,icon,MUSIC_PLAYER_CSS,escapeHtml,button,pro
 (()=>{
 const {UI_CSS, navigation, row, section, button, iconButton, filterButton, toggle, dialog, confirmDialog, field, selectField, rangeControl, multiSelect, whiteTemperatureControl, colourPicker, weekdayPicker, notice, loadingState, versionInfo, bindUI, escapeHtml} = WeckerManagerUI;
 
-const CARD_VERSION='1.10.0';
+const CARD_VERSION='1.10.1';
 
 const defaultDays = (calendar='') => [
   {id:'schultag',name:'Schultag',icon:'mdi:school',weekdays:[0,1,2,3,4],music_mode:'always',confirm_disable:true,calendar_entity:calendar},
@@ -666,7 +666,8 @@ class MusicManagerAlarmCard extends HTMLElement {
       :host{min-width:0}.wake-head{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px;align-items:start}#wake-music{min-width:0}
       .wake-type{min-width:0;border-top:1px solid var(--divider-color,#ddd)}.wake-row{display:grid;grid-template-columns:var(--fui-touch) minmax(0,1fr);gap:var(--fui-section-padding);align-items:center}
       .wake-symbol{display:grid;place-items:center;color:var(--primary-color,#03a9f4)}.wake-symbol ha-icon{display:block;width:var(--fui-icon);height:var(--fui-icon);--mdc-icon-size:var(--fui-icon)}
-      .wake-day-symbol{color:var(--primary-color,#03a9f4)}.wake-type.active{background:color-mix(in srgb,var(--primary-color,#03a9f4) 6%,transparent);border-radius:8px}
+      .wake-day-symbol{color:var(--primary-color,#03a9f4)}.wake-type.active{background:color-mix(in srgb,var(--primary-color,#03a9f4) 14%,transparent);border-radius:8px}
+      #wake-legend{border-top:1px solid var(--divider-color,#ddd);padding-top:var(--fui-section-padding)}
       .wake-row>.setting-row{min-width:0}
       .wake-presets{display:flex;justify-content:flex-start;gap:8px;flex-wrap:wrap;padding:var(--fui-row-padding) 0 var(--fui-section-padding)}.wake-presets .filter-button{flex:0 0 auto;margin:0}.wake-presets:empty{display:none}
       @media(max-width:360px){.wake-row{grid-template-columns:var(--fui-icon) minmax(0,1fr)}}
@@ -1259,7 +1260,7 @@ class WeckerManagerStatusCard extends MusicManagerAlarmCard {
   getCardSize(){return Math.ceil((48+(this._data?.days?.length||3)*40)/50);}
   _ensure(){
     if(!this._config||this._body)return;
-    this.shadowRoot.innerHTML=`<style>${UI_CSS}.status-title{padding:16px 16px 8px}.status-content{padding:0 16px 12px}.status-line{display:grid;grid-template-columns:var(--fui-icon) 12px minmax(0,1fr) auto;align-items:center;gap:4px;min-height:var(--fui-touch)}.status-time{text-align:end;white-space:nowrap;font-variant-numeric:tabular-nums}.wake-symbol{display:grid;place-items:center;color:var(--primary-color,#03a9f4)}.status-line.active{background:color-mix(in srgb,var(--primary-color,#03a9f4) 6%,transparent);border-radius:8px}.wake-symbol ha-icon{display:block;width:var(--fui-icon);height:var(--fui-icon);--mdc-icon-size:var(--fui-icon)}.status-dot{display:inline-block;width:12px;height:12px;border-radius:50%;background:var(--secondary-text-color,#727272)}.status-dot.on{background:var(--primary-color,#03a9f4)}</style><ha-card><h3 class="status-title" id="status-title"></h3><div class="status-content"><div id="status-error" aria-live="polite"></div><div id="status-types"></div></div></ha-card>`;
+    this.shadowRoot.innerHTML=`<style>${UI_CSS}.status-title{padding:16px 16px 8px}.status-content{padding:0 16px 12px}.status-line{display:grid;grid-template-columns:var(--fui-icon) 12px minmax(0,1fr) auto;align-items:center;gap:4px;min-height:var(--fui-touch)}.status-time{text-align:end;white-space:nowrap;font-variant-numeric:tabular-nums}.wake-symbol{display:grid;place-items:center;color:var(--primary-color,#03a9f4)}.status-line.active{background:color-mix(in srgb,var(--primary-color,#03a9f4) 14%,transparent);border-radius:8px}.wake-symbol ha-icon{display:block;width:var(--fui-icon);height:var(--fui-icon);--mdc-icon-size:var(--fui-icon)}.status-dot{display:inline-block;width:12px;height:12px;border-radius:50%;background:var(--secondary-text-color,#727272)}.status-dot.on{background:var(--primary-color,#03a9f4)}</style><ha-card><h3 class="status-title" id="status-title"></h3><div class="status-content"><div id="status-error" aria-live="polite"></div><div id="status-types"></div></div></ha-card>`;
     this._body=this.shadowRoot.getElementById('status-types');this._render();
   }
   _accept(data){if(data.exists)this._config={...this._config,...copy(data.binding)};this._data=data;this._dayKey=null;this._loadDay();}
