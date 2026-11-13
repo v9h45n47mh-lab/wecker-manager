@@ -67,7 +67,7 @@ const makeHass=()=>({user:{id:user,is_admin:user==='admin'},connection,states:{}
   if(user!=='admin')throw Error('Keine Berechtigung');const day=catalog.shared_days.find(day=>day.id===msg.template_id);if(!day||day.revision!==msg.revision)throw Error('Auf einem anderen Gerät geändert.');
   const linked=[...records.values()].filter(r=>r.days?.some(d=>d.template_id===day.id));if(linked.some(r=>dashboardRefs.has(r.binding.alarm_id+'|'+r.binding.card_id)))throw Error('Tagestyp wird noch verwendet.');
   const expected=linked.map(r=>({alarm_id:r.binding.alarm_id,card_id:r.binding.card_id}));if(JSON.stringify(msg.remove_cards||[])!==JSON.stringify(expected))throw Error('Bereinigung bitte bestätigen.');
-  for(const record of linked)records.delete(record.binding.alarm_id);catalog.shared_days=catalog.shared_days.filter(day=>day!==day);for(const cb of listeners)cb({data:{day_templates:true}});return {deleted:true};
+  for(const record of linked)records.delete(record.binding.alarm_id);catalog.shared_days=catalog.shared_days.filter(item=>item!==day);for(const cb of listeners)cb({data:{day_templates:true}});return {deleted:true};
  }
  const record=records.get(msg.alarm_id||msg.config?.alarm_id);
  if(record&&user!=='admin'&&user!==record.binding.owner_id)throw Error('Dieser Wecker gehört einem anderen Benutzer.');
