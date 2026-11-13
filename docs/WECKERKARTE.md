@@ -1,71 +1,54 @@
-# Weckerkarte 1.3.1
+# Weckerkarte 1.4.0
 
-Die Karte führt frei konfigurierbare Tagestypen aus, zum Beispiel Schultag, Wochenende, Ferien oder Frühdienst. Home Assistant führt die Wecker auch ohne geöffnetes Dashboard aus. Der separat installierte Music Manager liefert Musikauswahl und Wiedergabe.
+Die Integration führt Wecker zentral in Home Assistant aus. Dashboardkarten zeigen und ändern die zentral gespeicherten Daten. Der separat installierte Music Manager liefert die persönliche Musikauswahl.
 
-## Anlegen
+## Anlegen und vollständig bearbeiten
 
-1. **Tagestypen:** Die Liste beginnt leer. Kopfleiste einstellen und eigene Typen hinzufügen. Pro Typ Name, Symbol, ausdrücklich gewählte Wochentage, Musikverhalten, Ausschaltbestätigung und optional einen Kalender samt freien oder gebuchten Kalendertagen festlegen. Ein eigener Dialog hält die Einstellungen übersichtlich. Nur ganztägige Termine werden berücksichtigt.
-2. **Musik:** Weckername, genau ein Musikkonto und mindestens eine freigegebene Sonos-Box wählen. Mehrere Boxen sind möglich.
-3. **Rollläden:** Optional mehrere Rollläden auswählen und pro Gerät die Zielposition einstellen.
-4. **Licht:** Optional mehrere Lichter wählen und pro Gerät Helligkeit, Farbtemperatur oder Farbe festlegen. Sonnenaufgang und Vorlaufzeit werden später über das Zahnrad eingestellt.
-5. **Prüfen:** Tagestypen, Konto und Geräte prüfen. **Ändern** führt zum passenden Schritt zurück. **Wecker anlegen** speichert die Karte; anschließend das Dashboard speichern.
+Im Karteneditor beziehungsweise als Administrator unter **Zahnrad → Gesamte Karte bearbeiten** stehen dieselben fünf Schritte zur Verfügung:
 
-Zurück/Weiter erhält die Eingaben. Gerätedialoge und Typdialoge haben Übernehmen/Abbrechen. Die Kalender der Tagestypen müssen für das gewählte Musikkonto freigegeben sein. Die technische Karten- und Weckerkennung wird automatisch verwaltet.
+1. **Tagestypen:** Einen gemeinsamen Tagestyp übernehmen oder einen neuen Namen, ein Symbol und die gültigen Wochentage festlegen. Optional Kalender und freie/gebuchte Tage wählen. Musikverhalten und Ausschaltbestätigung gelten je Karte.
+2. **Musik:** Weckername, persönliches Musikkonto und eine oder mehrere freigegebene Sonos-Boxen wählen.
+3. **Rollläden:** Optional Geräte und deren Zielpositionen wählen.
+4. **Licht:** Optional Geräte, Zielhelligkeit und Farbe/Farbtemperatur einstellen.
+5. **Prüfen:** Mit **Wecker anlegen** beziehungsweise **Änderungen speichern** abschließen.
 
-Musikkonto, Musikboxen, Rollläden, Lampen und ihre Zielwerte bleiben fest zugeordnet. Für andere Geräte die Karte neu anlegen. Ein Administrator kann dagegen im Karteneditor **Tagestypen bearbeiten** wählen. Bestehende Typen behalten ihre Weckzeiten und Schnellzeiten, wenn Name oder Regeln geändert werden. Neue Typen beginnen ausgeschaltet. Das Entfernen eines aktiven Typs mit Ausschaltbestätigung erfordert ebenfalls eine Bestätigung.
+Bis zum abschließenden Speichern sind es Entwürfe. Abbrechen übernimmt keine neuen Bindungen. Fehler erhalten den Entwurf. Ein veralteter Entwurf überschreibt keine neuere Konfiguration. Eine vorhandene Karte behält ihre Kennung und Weckzeiten. Konto- oder Geräteänderungen werden auf allen Kopien derselben Karte sichtbar. Nur Administratoren dürfen die gesamte Karte bearbeiten; das Bedienen bleibt beim Eigentümer und bei Administratoren.
 
-Eine kopierte Karte mit derselben Kartenkennung ist dieselbe Karte auf einem weiteren Dashboard. Für einen unabhängigen Wecker eine neue Karte aus dem Kartenkatalog anlegen.
+## Gemeinsame Tage
 
-## Kopfleiste
+Name, Symbol, Wochentage, Kalender und die Regel für freie/gebuchte Tage gehören zum gemeinsamen Tagestyp. In jeder Karte bestehen weiterhin eigene Weckzeiten, Schnellzeiten, Aktivierungen, Musikschalter, Sonnenaufgangszeiten und Ausschaltbestätigungen.
 
-Im Karteneditor kann die Kopfleiste die passenden Tagestypen für **heute** oder **morgen**, einen **eigenen Text** oder keine Leiste anzeigen. Die Tagesvorschau verwendet die eingerichteten Wochentage und Kalenderregeln in der Home-Assistant-Zeitzone. Bei ausgeblendeter Leiste bleibt das Zahnrad in der Hauptkarte erreichbar. Diese Darstellungswahl lässt sich auch nach der Einrichtung ändern; danach das Dashboard speichern.
+Beispiel: **Schultag** bei Maximilian anlegen. Bei Paul im Setup **Gemeinsamen Tagestyp verwenden → Schultag → Tagestyp übernehmen** wählen. Paul erhält eine eigene Weckzeit. Wird später der gemeinsame Schultagskalender oder ein Wochentag geändert, erhalten beide Karten diese Regel. Der Tagestyp-Dialog weist darauf hin. Das Entfernen eines Typs aus einer Karte entfernt ihn nicht aus einer anderen Karte.
 
-## Kalender pro Tagestyp
+Vorhandene Tage werden beim Update übernommen. Identische gemeinsame Regeln werden zusammengeführt. Unterschiedliche Kalenderregeln bleiben getrennt. Kalenderzugriff wird für jeden verknüpften Eigentümer geprüft, bevor eine gemeinsame Änderung gespeichert wird.
 
-Ein Typ gilt nur an seinen ausgewählten Wochentagen. Bei gewähltem Kalender kommt eine zweite Bedingung hinzu. Im Setup des Tagestyps wählst du:
+## Kalender
 
-- **Gebuchte Kalendertage:** Der Typ gilt, wenn mindestens ein ganztägiger Termin an diesem Datum liegt.
-- **Freie Kalendertage:** Der Typ gilt, wenn an diesem Datum kein ganztägiger Termin liegt.
+Die gewählten Wochentage gelten immer. Ein Kalender fügt eine weitere Bedingung hinzu:
 
-Termine mit Uhrzeit beeinflussen diese Prüfung nicht, auch wenn sie von Mitternacht bis Mitternacht dauern. Mehrtägige Termine gelten ab dem Startdatum bis vor das Enddatum. Ein ganztägiger Termin vom 13. bis 14. gilt daher am 13.
+| Setup-Auswahl | Bedingung |
+| --- | --- |
+| Freie Kalendertage | Kein ganztägiger Termin an diesem Datum |
+| Gebuchte Kalendertage | Mindestens ein ganztägiger Termin an diesem Datum |
+| Ohne Kalenderprüfung | Nur die ausgewählten Wochentage |
 
-Ohne Kalenderprüfung gilt ein neuer Tagestyp an seinen ausgewählten Wochentagen. Folgende eigene Typen kannst du beispielsweise anlegen:
+Termine mit Uhrzeit zählen nicht, selbst wenn sie 24 Stunden dauern. Das Enddatum ganztägiger Termine ist exklusiv. Bei einem nicht erreichbaren Kalender pausiert der abhängige Typ; unabhängige Typen können weiterlaufen. Zur tatsächlichen Weckzeit wird der Kalender erneut abgefragt.
 
-| Typ | Wochentage | Kalender | Bedingung |
-| --- | --- | --- | --- |
-| Schultag | Mo–Fr | Schulfreie Tage | Freie Kalendertage |
-| Wochenende | Sa/So | Ohne Kalender | Keine weitere Bedingung |
-| Ferien / schulfrei | Mo–Fr | Schulfreie Tage | Gebuchte Kalendertage |
+## Zwei Symbolfarben für die nächsten 24 Stunden
 
-Ist ein ausgewählter Kalender nicht erreichbar, gilt weder die Termin- noch die Frei-Bedingung. Der betroffene Typ pausiert. Andere Typen ohne diese Kalenderabhängigkeit bleiben funktionsfähig. Zur Weckzeit wird der Kalender frisch abgefragt. Die Morgen-Anzeige verwendet dieselben Regeln und die Home-Assistant-Zeitzone; sie kann auch mehrere passende Typen nennen.
+- **Blau:** Ein aktivierter, nach Wochentag und Kalender passender Wecker wird zwischen jetzt und dem Ende der nächsten 24 Stunden ausgeführt.
+- **Grau:** Keine passende Ausführung in diesem Zeitraum; dazu gehören ausgeschaltete Typen, unpassende Tage und fehlgeschlagene Kalenderprüfungen.
 
-## Bedienen
+Bereits ausgeführte Wecker werden nicht erneut als ausstehend gezählt. Die Vorschau verwendet die Home-Assistant-Zeitzone und 24 tatsächlich verstrichene Stunden, auch bei Sommer-/Winterzeitwechseln. Nicht vorhandene Uhrzeiten beim Vorstellen der Uhr werden übersprungen. Die Anzeige aktualisiert sich regelmäßig und nach Änderungen; eine kurze Beschreibung steht am Symbol. Es gibt keine Tagesüberschrift und keine dritte Statusfarbe.
 
-- Uhrzeit antippen und Stunden/Minuten mit den Rädern wählen. Übernehmen speichert; Abbrechen oder Escape verwirft.
-- Eine Schnellzeit übernimmt die Zeit sofort. Die gewählte Zeit wird mit dem gemeinsamen UI-Kit-Stil hervorgehoben.
-- Ein- und Ausschalten über den Button des jeweiligen Typs. Eine konfigurierte Bestätigung wird vor dem Ausschalten abgefragt und serverseitig geprüft.
-- Bei **Musik immer an** gibt es keinen Musikschalter. Bei **schaltbar** kann die Musik in der Karte ein-/ausgeschaltet werden. Die gemeinsame Weckmusikauswahl gilt für alle Typen.
-- Kalender und freie/gebuchte Tage im Karteneditor über **Tagestypen bearbeiten** ändern. Die laufende Karte zeigt keine Kalenderauswahl.
-- Über das Zahnrad: Musiklautstärke 5–15 % für alle Boxen, bis zu drei Schnellzeiten je Typ und pro Typ Sonnenaufgang Aus oder bis zu 30 Minuten Vorlauf. Die dimmbaren zugeordneten Lampen beginnen bei 1 % und erreichen zur Weckzeit ihre feste Zielhelligkeit.
-- Einstellungen und Setup-Änderungen werden über eine Versionsprüfung abgesichert. Ein-/Ausschalten speichert gezielt nur den gewählten Tagestyp und erhält gleichzeitige Änderungen anderer Felder.
+## Laufende Einstellungen
 
-## Bestehende Wecker übernehmen
+Uhrzeit antippen und die Räder verwenden. Eine Schnellzeit übernimmt die Zeit sofort. Aktivierung und schaltbare Musik werden zentral gespeichert. Eine konfigurierte Ausschaltbestätigung wird auch serverseitig geprüft.
 
-Vorhandene Karten behalten ihre Weckerkennung und Gerätebindung. Die bisherigen drei Typen werden mit Symbolen, Wochentagen, Musikverhalten und Kalenderzuordnung übernommen. Schultag verwendet zunächst immer Musik und eine Ausschaltbestätigung; Wochenende und Ferien besitzen die bisherigen Musikschalter.
-
-| Kind | Bisherige Weckerkennung | Bisheriger Lichtvorlauf |
-| --- | --- | --- |
-| Maximilian | `m_wecker_schultag` | 5 Minuten beim Schultag |
-| Paul | `p_wecker_schultag` | Aus |
-
-Bei manueller Neuanlage mit einer bisherigen Weckerkennung werden vorhandene Helferzeiten, Aktivierungen, Musikschalter und gespeicherte Weckmusik einmalig übernommen. Bestehende Karten verwenden weiterhin ihre zentral gespeicherten Werte. Ein alter Ferienwecker ohne Kalender bleibt bis zur ausdrücklichen Neukonfiguration pausiert.
-
-Alte YAML-Automationen werden nicht automatisch verändert. **M – Wecker** beziehungsweise **P – Wecker** bei der Umstellung selbst deaktivieren; die alte Karte allein zu entfernen genügt nicht. Unabhängige Lichtsignale bleiben bestehen. Die alten Helfer werden nicht gelöscht.
+Unter dem Zahnrad stehen Lautstärke 5–15 %, bis zu drei Schnellzeiten und Sonnenaufgang je Typ. Der Dialog ist höchstens 480 Pixel breit und passt sich kleineren Bildschirmen an. Direkt im Dialog stehen Wecker-, Integrations- und UI-Kit-Version. Dimmbare Lichter werden beim Sonnenaufgang bis zur Weckzeit zur zugeordneten Zielhelligkeit aufgeblendet.
 
 ## Betrieb
 
-Die Zeit folgt Home Assistant. Pro lokalem Tag, Typ und Phase wird höchstens einmal ausgeführt, auch bei Neustart oder zurückgestellter Uhr. Ein komplett verpasster Wecker wird nicht nachgeholt. Musik stoppt nach fünf Minuten; ein beim Neustart überfälliger Stopp wird nachgeholt.
+Pro lokalem Tag, Typ und Phase wird höchstens einmal ausgeführt. Vollständig verpasste Wecker werden nicht nachgeholt. Musik stoppt nach fünf Minuten; ein überfälliger Stopp wird nach einem Neustart nachgeholt. Sonnenaufgang wird nicht über Mitternacht vorgezogen. Berechtigungen werden bei der Ausführung erneut geprüft.
 
-Sonnenaufgang wird nicht über Mitternacht vorgezogen. Geräte- und Kontoberechtigungen werden bei der Ausführung erneut geprüft. Ein einzelnes ausgefallenes Ausgabegerät verhindert die anderen Weckaktionen nicht. Änderungen der festen Musikkontozuordnung pausieren die Karte bis zur Neuanlage.
-
-Zeitpläne bleiben erhalten, wenn eine Dashboardkarte entfernt wird. Zum dauerhaften Beenden zuerst alle Tagestypen ausschalten und anschließend die Karte löschen. Eine neu angelegte Karte mit derselben Weckerkennung ersetzt den bisherigen Zeitplan; es entsteht kein zweiter unabhängiger Wecker.
+Zeitpläne bleiben erhalten, wenn eine Dashboardkarte entfernt wird. Zum dauerhaften Beenden zuerst alle Tagestypen ausschalten und danach die Karte entfernen. Eine neu angelegte Karte mit derselben Weckerkennung ersetzt den vorherigen Zeitplan.

@@ -7,7 +7,7 @@ import {parseHTML} from 'linkedom';
 const bundle=await readFile(new URL('../dist/wecker-manager-card.js',import.meta.url),'utf8');
 const clone=value=>JSON.parse(JSON.stringify(value));
 const flush=async()=>{for(let i=0;i<12;i++)await new Promise(resolve=>setImmediate(resolve));};
-function fixture({days,settings:override,header}={}){
+function fixture({days,settings:override,header,upcoming={schultag:{active:true,label:'13.11. 06:12'},wochenende:{active:false},ferien:{active:false}}}={}){
  const {window}=parseHTML('<!doctype html><html><body></body></html>'),{document}=window;
  window.HTMLElement.prototype.showModal=function(){this.open=true;};
  window.HTMLElement.prototype.close=function(){this.open=false;this.dispatchEvent(new window.Event('close'));};
@@ -25,6 +25,7 @@ function fixture({days,settings:override,header}={}){
   if(user!=='max'&&msg.type==='wecker_manager/card')throw {code:'unauthorized',message:'Anderer Benutzer'};
   if(msg.type==='music_manager/alarm')return {owner:'Maximilian',source:'Box',selection:{title:'TOP STRIKER'},songs:[]};
   if(msg.action==='day_info')return {date:'2026-11-14',kind:'wochenende',label:msg.day_offset===0?'Heute ist Schultag':'Morgen ist Wochenende'};
+  if(msg.action==='upcoming')return {types:clone(upcoming)};
   if(msg.action==='get')return clone(record);
   if(msg.action==='update'){if(fail)throw {code:'save_failed',message:'Speichern fehlgeschlagen'};if(msg.revision!==record.revision)throw {code:'conflict',message:'Auf einem anderen Gerät geändert'};record.settings=clone(msg.settings);record.revision++;for(const callback of listeners)callback({data:{alarm_id:'school'}});return clone(record);}
   if(msg.action==='set_enabled'){if(fail)throw {code:'save_failed',message:'Speichern fehlgeschlagen'};record.settings.types[msg.kind].enabled=msg.enabled;record.revision++;for(const callback of listeners)callback({data:{alarm_id:'school'}});return clone(record);}
@@ -56,8 +57,8 @@ test('school disable requires confirmation and save failure retains the previous
  e.fail=true;e.click('confirm-disable');await flush();assert.equal(e.record.settings.types.schultag.enabled,true);assert.equal(e.card.shadowRoot.getElementById('wake-confirm-dialog').open,true);
  e.fail=false;e.click('confirm-disable');await flush();assert.equal(e.record.settings.types.schultag.enabled,false);e.card.remove();
 });
-test('fixed bindings reject YAML changes and switching users clears old controls',async()=>{
- const e=fixture();await flush();e.card.setConfig({...e.config,speakers:['media_player.other']});await flush();assert.match(e.card.shadowRoot.getElementById('wake-status').textContent,/festgelegt/);assert.equal(e.card.shadowRoot.querySelectorAll('[data-action="time"]').length,0);
+test('server bindings update existing YAML copies and switching users clears old controls',async()=>{
+ const e=fixture();await flush();e.card.setConfig({...e.config,speakers:['media_player.other']});await flush();assert.deepEqual(clone(e.card._config.speakers),e.record.binding.speakers);assert.equal(e.card.shadowRoot.querySelectorAll('[data-action="time"]').length,3);
  e.card.setConfig(e.config);await flush();e.switchUser('paul');await flush();assert.equal(e.card.shadowRoot.querySelectorAll('[data-action="time"]').length,0);assert.equal(e.card.shadowRoot.querySelector('music-manager-alarm-row'),null);e.card.remove();
 });
 test('live updates sync the card and a settings draft cannot overwrite a newer revision',async()=>{
@@ -65,9 +66,9 @@ test('live updates sync the card and a settings draft cannot overwrite a newer r
  e.click('settings');e.remoteChange(record=>record.settings.volume=14);await flush();e.click('save-settings');await flush();assert.equal(e.record.settings.volume,14);assert.match(e.card.shadowRoot.getElementById('wake-settings-status').textContent,/anderen Gerät/);
  e.card.remove();assert.equal(e.listeners.size,0);
 });
-test('reference layout has tomorrow status, labelled icons and grouped presets without a box-count header',async()=>{
+test('reference layout has no day heading and keeps labelled icons and grouped presets',async()=>{
  const e=fixture();await flush();
- assert.equal(e.card.shadowRoot.getElementById('wake-day').textContent,'Morgen ist Wochenende');
+ assert.equal(e.card.shadowRoot.querySelector('#wake-day,#wake-day-card'),null);
  assert.equal(e.card.shadowRoot.querySelectorAll('.wake-type').length,3);
  assert.equal(e.card.shadowRoot.querySelectorAll('.wake-symbol ha-icon').length,8);
  assert.equal(e.card.shadowRoot.querySelectorAll('.wake-presets[role="group"]').length,3);
@@ -114,13 +115,19 @@ test('switching one type does not resubmit unrelated settings and survives reloa
  const call=e.calls.find(c=>c.action==='set_enabled');assert.equal(call.kind,'wochenende');assert.equal(call.enabled,false);assert(!Object.hasOwn(call,'settings'));
  e.card.setConfig(e.config);await flush();assert.equal(e.card.shadowRoot.querySelector('[data-action="enabled"][data-kind="wochenende"]').textContent,'Einschalten');e.card.remove();
 });
-test('header supports today, custom text and hiding without losing settings access',async()=>{
+test('legacy header settings never bring back the removed heading; settings show a version',async()=>{
  for(const header of [{mode:'today'},{mode:'custom',title:'Mein Wecker'},{mode:'hidden'}]){
   const e=fixture({header});await flush();
-  assert.equal(e.card.shadowRoot.getElementById('wake-day-card').hidden,header.mode==='hidden');
-  if(header.mode==='today')assert.equal(e.card.shadowRoot.getElementById('wake-day').textContent,'Heute ist Schultag');
-  if(header.mode==='custom')assert.equal(e.card.shadowRoot.getElementById('wake-day').textContent,'Mein Wecker');
-  if(header.mode!=='today')assert.equal(e.calls.filter(c=>c.action==='day_info').length,0);
+  assert.equal(e.card.shadowRoot.querySelector('#wake-day,#wake-day-card'),null);
+  assert.equal(e.calls.filter(c=>c.action==='day_info').length,0);
   assert.equal(e.card.shadowRoot.querySelectorAll('[data-action="settings"]').length,1);e.click('settings');assert(e.card.shadowRoot.getElementById('wake-settings-dialog').open);e.card.remove();
+  assert.match(e.card.shadowRoot.querySelector('.version-info').textContent,/Wecker \d+\.\d+\.\d+/);
  }
+});
+test('only enabled types returned in the next 24 hours are blue; all others are grey',async()=>{
+ const e=fixture();await flush();const icon=kind=>e.card.shadowRoot.querySelector(`[data-wake-kind="${kind}"]`);
+ assert.equal(icon('schultag').dataset.nextActive,'true');assert.match(icon('schultag').getAttribute('aria-label'),/nächsten 24 Stunden/);
+ assert.equal(icon('wochenende').dataset.nextActive,'false');assert.equal(icon('ferien').dataset.nextActive,'false');
+ e.click('enabled','[data-kind="schultag"]');e.click('confirm-disable');await flush();assert.equal(icon('schultag').dataset.nextActive,'false');
+ assert.equal(e.card.shadowRoot.querySelector('[data-wake-kind].today,[data-wake-kind].tomorrow'),null);e.card.remove();
 });

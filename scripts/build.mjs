@@ -11,7 +11,7 @@ for(const [name,expected] of Object.entries(lock.files))if(hash(await read(`src/
 if(hash(await read(`src/family-ui/${lock.version}/LICENSE`))!==lock.licenseSha256)throw Error('UI Kit license mismatch');
 const version=JSON.parse(await read('package.json')).version;
 if(JSON.parse(await read('custom_components/wecker_manager/manifest.json')).version!==version||!(await read('custom_components/wecker_manager/const.py')).includes(`VERSION = "${version}"`))throw Error('Version mismatch');
-const source=await read('src/wecker-manager-card.js');
+const source=(await read('src/wecker-manager-card.js')).replaceAll('__WECKER_VERSION__',version);
 const pattern=/import\s*\{([\s\S]*?)\}\s*from '\.\/family-ui\/1\.4\.1\/family-ui\.js';/;
 const names=source.match(pattern)?.[1];if(!names)throw Error('Expected pinned UI import');
 const exports=[...kit.matchAll(/^export (?:async )?(?:const|function) (\w+)/gm)].map(m=>m[1]);

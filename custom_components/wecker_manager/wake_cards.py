@@ -2,7 +2,7 @@
 
 import asyncio
 from copy import deepcopy
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 import logging
 import re
 from types import SimpleNamespace
@@ -19,8 +19,9 @@ from homeassistant.util import dt as dt_util
 from ..music_manager.access import AccessError, account_for, checked_account, sonos_uid, validate_uri, value
 from ..music_manager.alarms import ALARM_ID, alarm_owner, apple_target, selection_from
 from ..music_manager.const import CONF_ACCOUNTS, CONF_ALARMS
-from .const import DOMAIN, MUSIC_DOMAIN
+from .const import DOMAIN, MUSIC_DOMAIN, VERSION
 from .day_types import legacy_days, day_definitions, validate_days, settings_for_days, calendar_mode
+from . import shared_days
 from ..music_manager.helpers import music_assistant_client
 
 KEY = "wake_cards"
@@ -111,6 +112,7 @@ def snapshot(hass, record):
         item["sunrise_minutes"] = sunrise_minutes(record, kind)
     return {"exists": True, "binding": deepcopy(record["binding"]),
             "settings": settings, "days": day_definitions(record), "revision": record["revision"],
+            "name": record.get("name", "Wecker"), "version": VERSION,
             "sunrise_available": has_dimmable_light(hass, record["binding"]),
             "error": runtime(hass)["errors"].get(record["binding"]["card_id"], "")}
 
@@ -134,6 +136,25 @@ def save_record(hass, entry, alarm_id, record, *, notify=True):
     hass.config_entries.async_update_entry(entry, options={**entry.options, KEY: cards})
     if notify:
         hass.bus.async_fire(EVENT, {"alarm_id": alarm_id})
+
+
+def commit_shared(hass, entry, templates, cards, changed):
+    hass.config_entries.async_update_entry(entry, options={**entry.options, shared_days.LIBRARY: templates, KEY: cards})
+    for alarm_id in changed:
+        hass.bus.async_fire(EVENT, {"alarm_id": alarm_id})
+
+
+async def stage_shared(hass, caller, entry, alarm_id, record, days):
+    templates, cards, migrated = shared_days.migrate(entry.options)
+    templates, cards, changed = shared_days.apply(templates, cards, alarm_id, record, days)
+    changed.update(migrated)
+    for key in changed:
+        owner = await hass.auth.async_get_user(cards[key]["binding"]["owner_id"])
+        if owner and owner.is_active:
+            for day in day_definitions(cards[key]):
+                if day["calendar_entity"]:
+                    allowed_entity(hass, owner, caller, day["calendar_entity"], "calendar", control=False)
+    return templates, cards, changed
 
 
 def default_settings(hass, alarm_id):
@@ -205,22 +226,37 @@ async def catalog(hass, caller, owner_id=None):
                                        "description": state.entity_id, "attributes": {k: state.attributes[k] for k in ("supported_color_modes", "min_color_temp_kelvin", "max_color_temp_kelvin", "supported_features") if k in state.attributes}})
     for items in devices.values():
         items.sort(key=lambda item: item["label"].casefold())
-    return {"accounts": accounts, **devices}
+    templates, cards, changed = shared_days.migrate(entry.options)
+    if changed:
+        # Upgrade is also run at integration startup; this covers old imports.
+        async with runtime(hass)["lock"]:
+            templates, cards, changed = shared_days.migrate(entry.options)
+            if changed:
+                commit_shared(hass, entry, templates, cards, changed)
+    calendars = {item["id"] for item in devices["calendars"]}
+    available_days = [{**deepcopy(item), "uses": sum(any(d.get("template_id") == item["id"] for d in day_definitions(record)) for record in cards.values())}
+                      for item in templates.values() if not item["calendar_entity"] or item["calendar_entity"] in calendars]
+    available_days.sort(key=lambda item: item["name"].casefold())
+    return {"accounts": accounts, "shared_days": available_days, **devices}
 
 
-async def create_card(hass, caller, config):
+async def create_card(hass, caller, config, *, reconfigure=False, revision=None, confirm_disable=None):
     require_admin(caller)
-    if not isinstance(config, dict) or set(config) - {"card_id", "alarm_id", "owner_id", "speakers", "covers", "lights", "calendar_entity", "sunrise_minutes", "replace_automation", "days"}:
+    if not isinstance(config, dict) or set(config) - {"card_id", "alarm_id", "owner_id", "speakers", "covers", "lights", "calendar_entity", "sunrise_minutes", "replace_automation", "days", "name"}:
         raise AccessError("invalid_config", "Die Kartenkonfiguration ist ungültig.")
     card_id, alarm_id = identifier(config.get("card_id")), identifier(config.get("alarm_id"))
     entry = entry_for(hass)
     async with runtime(hass)["lock"]:
         existing = entry.options.get(KEY, {}).get(alarm_id)
+        if reconfigure and (not existing or existing["binding"]["card_id"] != card_id):
+            raise AccessError("card_missing", "Diese Karte wurde ersetzt. Bitte erneut laden.")
+        if reconfigure and (type(revision) is not int or revision != existing["revision"]):
+            raise AccessError("conflict", "Die Karte wurde auf einem anderen Gerät geändert. Bitte erneut laden.")
         if existing and card_id in existing.get("retired_card_ids", []):
             raise AccessError("card_replaced", "Diese Karte wurde ersetzt. Bitte eine neue Weckerkarte anlegen.")
         if any(key != alarm_id and item["binding"]["card_id"] == card_id for key, item in entry.options.get(KEY, {}).items()):
             raise AccessError("invalid_config", "Diese Kartenkennung wird bereits verwendet. Bitte eine neue Karte anlegen.")
-        if existing and existing["binding"]["card_id"] == card_id:
+        if existing and existing["binding"]["card_id"] == card_id and not reconfigure:
             if binding_signature(config) != binding_signature(existing["binding"]):
                 raise AccessError("immutable_binding", "Geräte und Musikkonto sind festgelegt. Bitte eine neue Karte anlegen.")
             await checked_record(hass, caller, alarm_id, card_id)
@@ -282,22 +318,25 @@ async def create_card(hass, caller, config):
             if day["calendar_entity"]:
                 allowed_entity(hass, owner, caller, day["calendar_entity"], "calendar", control=False)
         settings = settings_for_days({"binding": binding, "settings": settings}, days)
+        if existing:
+            check_disable_confirmation(existing, settings["types"], confirm_disable)
         if not has_dimmable_light(hass, binding):
             settings["sunrise_minutes"] = 0
             for item in settings["types"].values():
                 item["sunrise_minutes"] = 0
-        retired = list(existing.get("retired_card_ids", [])) + [existing["binding"]["card_id"]] if existing else []
-        record = {"binding": binding, "account": deepcopy(account), "days": days, "settings": settings, "revision": 1,
+        name = config.get("name", existing.get("name", "Wecker") if existing else "Wecker")
+        if not isinstance(name, str) or not 1 <= len(name.strip()) <= 80:
+            raise AccessError("invalid_config", "Bitte einen Namen für den Wecker vergeben.")
+        retired = list(existing.get("retired_card_ids", [])) + ([existing["binding"]["card_id"]] if existing["binding"]["card_id"] != card_id else []) if existing else []
+        record = {"binding": binding, "name": name.strip(), "account": deepcopy(account), "days": days, "settings": settings, "revision": existing["revision"] + 1 if reconfigure else 1,
                   "runs": deepcopy(existing.get("runs", {})) if existing else {}, "retired_card_ids": retired,
                   "stops": deepcopy(existing.get("stops", [])) if existing else []}
         alarms = [a for a in music_entry.options.get(CONF_ALARMS, []) if a.get("alarm_id") != alarm_id]
         alarms.append({"alarm_id": alarm_id, "ha_user_id": owner.id, "source_entity": speakers[0]})
-        cards = dict(entry.options.get(KEY, {}))
-        cards[alarm_id] = record
+        templates, cards, changed = await stage_shared(hass, caller, entry, alarm_id, record, days)
         hass.config_entries.async_update_entry(music_entry, options={**music_entry.options, CONF_ALARMS: alarms})
-        hass.config_entries.async_update_entry(entry, options={**entry.options, KEY: cards})
-        hass.bus.async_fire(EVENT, {"alarm_id": alarm_id})
-        return snapshot(hass, record)
+        commit_shared(hass, entry, templates, cards, changed)
+        return snapshot(hass, cards[alarm_id])
 
 
 async def update_card(hass, caller, alarm_id, card_id, settings, revision, confirm_disable=None):
@@ -367,8 +406,9 @@ async def configure_days(hass, caller, alarm_id, card_id, raw_days, revision, co
         if "days" not in record and not record["binding"].get("calendar_entity") and "ferien" in settings["types"]:
             settings["types"]["ferien"]["enabled"] = False
         updated = {**record, "days": days, "settings": settings, "revision": record["revision"] + 1}
-        save_record(hass, entry, alarm_id, updated)
-        return snapshot(hass, updated)
+        templates, cards, changed = await stage_shared(hass, caller, entry, alarm_id, updated, days)
+        commit_shared(hass, entry, templates, cards, changed)
+        return snapshot(hass, cards[alarm_id])
 
 
 def calendar_key(owner_id, entity_id, when):
@@ -456,9 +496,51 @@ async def tomorrow_info(hass, caller, alarm_id, card_id, day_offset=1):
             "types": [day["id"] for day in matches], "label": label}
 
 
+async def upcoming_info(hass, caller, alarm_id, card_id):
+    """Actual upcoming wakes in 24 elapsed hours, using the scheduler's rules."""
+    _, record, owner = await checked_record(hass, caller, alarm_id, card_id)
+    now = dt_util.utcnow().astimezone(timezone.utc)
+    until = now + timedelta(hours=24)
+    local_now, local_end = dt_util.as_local(now), dt_util.as_local(until)
+    cursor = local_now.replace(hour=0, minute=0, second=0, microsecond=0)
+    dates = []
+    while cursor.date() <= local_end.date():
+        dates.append(cursor)
+        cursor += timedelta(days=1)
+    for when in dates:
+        await prepare_calendars(hass, record, owner, when, caller)
+    result = {}
+    for day in day_definitions(record):
+        kind = day["id"]
+        settings = record["settings"]["types"][kind]
+        candidates = []
+        if settings.get("enabled"):
+            hour, minute = map(int, settings["time"].split(":"))
+            for when in dates:
+                if record.get("runs", {}).get(f"{when.date().isoformat()}/{kind}/wake"):
+                    continue
+                for fold in (0, 1):
+                    target = when.replace(hour=hour, minute=minute, fold=fold)
+                    utc = target.astimezone(timezone.utc)
+                    # Ignore nonexistent local times at the spring clock change.
+                    if dt_util.as_local(utc).replace(tzinfo=None) != target.replace(tzinfo=None):
+                        continue
+                    if not now <= utc <= until:
+                        continue
+                    try:
+                        if day_matches(hass, record, kind, target):
+                            candidates.append(utc)
+                    except AccessError:
+                        pass
+        at = min(candidates) if candidates else None
+        result[kind] = {"active": at is not None, "at": at.isoformat() if at else None,
+                        "label": dt_util.as_local(at).strftime("%d.%m. %H:%M") if at else ""}
+    return {"generated_at": now.isoformat(), "until": until.isoformat(), "types": result}
+
+
 @websocket_api.websocket_command({
     vol.Required("type"): "wecker_manager/card",
-    vol.Required("action"): vol.In(["catalog", "get", "create", "update", "set_enabled", "day_info", "configure_days"]),
+    vol.Required("action"): vol.In(["catalog", "get", "create", "configure", "update", "set_enabled", "day_info", "upcoming", "configure_days"]),
     vol.Optional("alarm_id"): str,
     vol.Optional("card_id"): str,
     vol.Optional("owner_id"): str,
@@ -480,10 +562,14 @@ async def websocket_wake_card(hass, connection, msg):
                 result = await catalog(hass, connection.user, msg.get("owner_id"))
             elif action == "day_info":
                 result = await tomorrow_info(hass, connection.user, msg.get("alarm_id"), msg.get("card_id"), msg.get("day_offset", 1))
+            elif action == "upcoming":
+                result = await upcoming_info(hass, connection.user, msg.get("alarm_id"), msg.get("card_id"))
             elif action == "configure_days":
                 result = await configure_days(hass, connection.user, msg.get("alarm_id"), msg.get("card_id"), msg.get("days"), msg.get("revision"), msg.get("confirm_disable"))
             elif action == "create":
                 result = await create_card(hass, connection.user, msg.get("config"))
+            elif action == "configure":
+                result = await create_card(hass, connection.user, msg.get("config"), reconfigure=True, revision=msg.get("revision"), confirm_disable=msg.get("confirm_disable"))
             elif action == "update":
                 result = await update_card(hass, connection.user, msg.get("alarm_id"), msg.get("card_id"), msg.get("settings"), msg.get("revision"), msg.get("confirm_disable"))
             elif action == "set_enabled":
@@ -498,7 +584,8 @@ async def websocket_wake_card(hass, connection, msg):
                     require_admin(connection.user)
                     result = {"exists": False, "can_create": True, "replaces_card": bool(record)}
                 else:
-                    _, record, _ = await checked_record(hass, connection.user, alarm_id, card_id)
+                    if not connection.user.is_admin:
+                        _, record, _ = await checked_record(hass, connection.user, alarm_id, card_id)
                     result = snapshot(hass, record)
             connection.send_result(msg["id"], result)
     except AccessError as err:
@@ -676,6 +763,10 @@ async def tick(hass, when):
 def async_setup_wake_cards(hass):
     """Attach once per integration load; all schedules execute without a browser."""
     state = runtime(hass)
+    entry = entry_for(hass)
+    templates, cards, changed = shared_days.migrate(entry.options)
+    if changed:
+        commit_shared(hass, entry, templates, cards, changed)
     if not state.get("unsubscribe"):
         async def scheduled_tick(when):
             await tick(hass, when)

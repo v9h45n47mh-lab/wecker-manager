@@ -29,7 +29,7 @@ def validate_days(raw):
     result, identifiers = [], set()
     fields = {"id", "name", "icon", "weekdays", "music_mode", "confirm_disable", "calendar_entity"}
     for item in raw:
-        if not isinstance(item, dict) or not fields <= set(item) or set(item) - fields - {"calendar_mode"}:
+        if not isinstance(item, dict) or not fields <= set(item) or set(item) - fields - {"calendar_mode", "template_id", "template_revision"}:
             raise AccessError("invalid_config", "Die Angaben für einen Tagestyp sind unvollständig.")
         if not isinstance(item["id"], str) or not DAY_ID.fullmatch(item["id"]) or item["id"] in identifiers:
             raise AccessError("invalid_config", "Jeder Tagestyp benötigt eine eigene Kennung.")
@@ -48,6 +48,10 @@ def validate_days(raw):
         mode = item.get("calendar_mode", calendar_mode(item["id"]))
         if mode not in ("event", "no_event"):
             raise AccessError("invalid_config", "Bitte freie oder gebuchte Kalendertage auswählen.")
+        if "template_id" in item and (not isinstance(item["template_id"], str) or not DAY_ID.fullmatch(item["template_id"])):
+            raise AccessError("invalid_config", "Der gemeinsame Tagestyp ist ungültig.")
+        if "template_revision" in item and (type(item["template_revision"]) is not int or item["template_revision"] < 1):
+            raise AccessError("invalid_config", "Die Version des gemeinsamen Tagestyps ist ungültig.")
         identifiers.add(item["id"])
         result.append({**deepcopy(item), "name": item["name"].strip(), "weekdays": sorted(weekdays), "calendar_mode": mode})
     return result
