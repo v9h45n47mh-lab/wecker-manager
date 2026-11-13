@@ -1,4 +1,4 @@
-# Weckerkarte 1.10.0
+# Weckerkarte 1.10.1
 
 Die Integration führt Wecker zentral in Home Assistant aus. Dashboardkarten zeigen und ändern die zentral gespeicherten Daten. Der separat installierte Music Manager liefert die persönliche Musikauswahl.
 

@@ -1,3 +1,10 @@
+# Wecker 1.10.1
+
+- Die blaue Hinterlegung aktiver Tagestypen ist kräftiger: 14 % statt 6 % Deckkraft in Wecker- und Statuskarte. Sie kennzeichnet weiterhin ausschließlich Weckvorgänge innerhalb der nächsten 24 Stunden; alle Symbole bleiben blau.
+- Eine Trennlinie zwischen dem letzten Wecker und „Blau hinterlegt: aktiv in den nächsten 24 Stunden.“ grenzt den Hinweis sichtbar ab.
+
+**Update:** Wecker in HACS aktualisieren und den Browser mit Strg+F5 neu laden.
+
 # Wecker 1.10.0
 
 - Unter **Zahnrad → Tagestypen verwalten → Stift** sind jetzt auch **Musik** (immer an oder in der Karte schaltbar) und **Ausschalten des Weckers** (mit einem Klick oder erst nach Bestätigung) einstellbar. Beide Werte sind auch beim Anlegen eines gemeinsamen Tagestyps verfügbar.

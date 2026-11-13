@@ -1,4 +1,4 @@
-# UI-Kit-Prüfung für Wecker 1.10.0
+# UI-Kit-Prüfung für Wecker 1.10.1
 
 Der Wecker bindet HA UI Kit 1.4.1 unverändert am Commit `393474e75869ba79195d800624a5a793a51fe2c4` ein. Der Build prüft die festgehaltenen Prüfsummen von JavaScript, CSS und Lizenz.
 
@@ -16,7 +16,7 @@ Entfernt wurden die zusätzlichen 48-Pixel-Zeilenhöhen, die eigene 44-Pixel-Zei
 
 Die Browserprüfung vergleicht berechnete Schrift-, Farb- und Innenabstandswerte von Zeilentext, Schaltbutton, Schnellzeit und Musikschalter mit separat gerenderten unveränderten UI-Kit-Komponenten, jeweils auf Desktop und schmalen Displays in hellen und dunklen Themes. Screenshots prüfen außerdem Setup, Tagesdialog, 24-Stunden-Farben, vollständige Bearbeitung, zentrale Tagestypen-Verwaltung, Hue-Szenenauswahl und Einstellungen. Der separat installierte Music Manager wird über seine öffentliche Musikzeilen-Komponente eingebunden; dessen interner Shadow DOM wird nicht überschrieben.
 
-Tagessymbole verwenden die primäre Theme-Farbe. Die 24-Stunden-Markierung verwendet dieselbe Farbe mit nur 6 % Deckkraft als Hintergrund des gesamten Weckerbereichs. Schrift, Innenabstände und gemeinsame Bedienelemente bleiben unverändert.
+Tagessymbole verwenden die primäre Theme-Farbe. Die 24-Stunden-Markierung verwendet dieselbe Farbe mit 14 % Deckkraft als Hintergrund des gesamten Weckerbereichs. Schrift, Innenabstände und gemeinsame Bedienelemente bleiben unverändert.
 
 Weckdauer, Minuteneingabe und Aktualisieren verwenden unveränderte Auswahlfelder, Eingabefelder, Abschnitte und Buttons des UI Kits. Die Hintergrundlegende verwendet dessen Hinweistext. Die Browserprüfung deckt Dauer und Titelende in den Wecker-Einstellungen sowie die aktualisierte Verwendungsliste ausdrücklich ab.
 
@@ -25,3 +25,5 @@ Die Browserprüfung zeigt zusätzlich den geprüften Entwurf vor dem Home-Assist
 Die Weckerverwaltung verwendet gemeinsame Zeilen, Filterbuttons, Hinweis- und Ladeanzeigen sowie den gemeinsamen Bestätigungsdialog. Browserbilder prüfen Liste und Löschbestätigung bei 1100, 390 und 320 Pixeln in hellen und dunklen Themes.
 
 Musik und Ausschaltverhalten in der Tagestypenverwaltung verwenden die gemeinsamen Auswahlfelder. Die ausdrückliche Übernahme auf bestehende Wecker verwendet den gemeinsamen Schalter und Hinweistext. Browserprüfungen decken das Speichern nur der Vorgaben und die Anwendung auf vorhandene Wecker ab; Screenshots prüfen beide Bereiche bei 1100, 390 und 320 Pixeln in hellen und dunklen Themes.
+
+Die Linie vor der Hintergrundlegende verwendet die gemeinsame Theme-Trennfarbe und den UI-Kit-Abstand für Abschnitte. Browserbilder prüfen die kräftigere 24-Stunden-Markierung und die Trennlinie in hellen und dunklen Themes bei Desktop- und Mobilbreiten.

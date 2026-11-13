@@ -28,6 +28,7 @@ let browser;
   assert.equal(await card().locator('[data-wake-calendar],.wake-calendar-rule').count(),0);
   assert.equal(await card().locator('[data-wake-kind][data-next-active="true"]').count(),1);
   const symbolColours=await card().locator('[data-wake-kind]').evaluateAll(els=>els.map(el=>getComputedStyle(el).color));assert.equal(new Set(symbolColours).size,1);assert.equal(await card().locator('.wake-type.active').count(),1);assert.equal(new Set(await card().locator('.wake-type').evaluateAll(els=>els.map(el=>getComputedStyle(el).backgroundColor))).size,2);
+  const legendStyle=await card().locator('#wake-legend').evaluate(el=>{const s=getComputedStyle(el);return {border:s.borderTopWidth,style:s.borderTopStyle,padding:s.paddingTop};});assert.equal(legendStyle.border,'1px');assert.equal(legendStyle.style,'solid');assert(parseFloat(legendStyle.padding)>0);
   const styleDifferences=await page.evaluate(async()=>{
    const ui=await import('/src/family-ui/1.4.1/family-ui.js'),host=document.createElement('div'),root=host.attachShadow({mode:'open'});
    root.innerHTML=`<style>${ui.UI_CSS}</style>${ui.row({title:'Referenz',description:'Wochentage',trailing:ui.button({label:'Ausschalten',action:'reference'})})}${ui.filterButton({label:'05:55',selected:false})}${ui.toggle({label:'Musik',checked:false,iconOnly:true})}`;document.body.append(host);
@@ -71,7 +72,7 @@ let browser;
  await action('settings').click();const settings=card().locator('#wake-settings-dialog');
  const slider=settings.locator('#wake-volume');assert.equal(await slider.getAttribute('min'),'5');assert.equal(await slider.getAttribute('max'),'15');
  assert.equal(await settings.locator('select').count(),4);assert(await settings.locator('#wake-sunrise-setting').isVisible());assert.equal(await settings.locator('[data-ui-multi]').count(),0);
- assert(await settings.evaluate(el=>el.getBoundingClientRect().width<=480));assert.match(await settings.locator('.version-info').innerText(),/Wecker 1\.10\.0/);
+ assert(await settings.evaluate(el=>el.getBoundingClientRect().width<=480));assert.match(await settings.locator('.version-info').innerText(),/Wecker 1\.10\.1/);
  assert(await settings.locator('#wake-settings').evaluate(el=>el.lastElementChild.classList.contains('version-info')));
  await slider.press('End');await settings.locator('#wake-sunrise-setting').selectOption('15');
  await settings.locator('[data-action="preset-remove"][data-kind="schultag"]').first().click();
