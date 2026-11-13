@@ -27,7 +27,18 @@ const item=(id,label,attributes={})=>({id,label,description:id,attributes});
 const catalog={accounts:[{value:'max',label:'Maximilian'},{value:'paul',label:'Paul'}],speakers:[item('media_player.max','Maximilian'),item('media_player.dress','Ankleide')],covers:[item('cover.max','Maximilian',{supported_features:15}),item('cover.dress','Ankleide',{supported_features:15})],lights:[item('light.max','Deckenlicht',{supported_color_modes:['color_temp'],min_color_temp_kelvin:2000,max_color_temp_kelvin:6500}),item('light.dress','Bettlicht',{supported_color_modes:['rgb']})],calendars:[item('calendar.school','Schulfreie Tage'),item('calendar.work','Arbeitstage')]};
 const records=new Map();
 const binding=({type,name,days,header,...rest})=>rest;
-records.set(config.alarm_id,{exists:true,binding:binding(config),settings:clone(settings),revision:1});
+const schoolTemplate={id:'day_shared_school',name:'Schultag',icon:'mdi:school',weekdays:[0,1,2,3,4],calendar_entity:'calendar.school',calendar_mode:'no_event',revision:1,uses:1};catalog.shared_days=[schoolTemplate];
+const initialDays=[{...schoolTemplate,id:'schultag',template_id:schoolTemplate.id,template_revision:1,music_mode:'always',confirm_disable:true},{id:'wochenende',name:'Wochenende',icon:'mdi:weather-sunny',weekdays:[5,6],music_mode:'switchable',confirm_disable:false,calendar_entity:'',calendar_mode:'event'},{id:'ferien',name:'Ferien / schulfrei',icon:'mdi:palm-tree',weekdays:[0,1,2,3,4],music_mode:'switchable',confirm_disable:false,calendar_entity:'calendar.school',calendar_mode:'event'}].map(({revision,uses,...day})=>day);
+records.set(config.alarm_id,{exists:true,binding:binding(config),name:config.name,version:'1.4.0',days:initialDays,settings:clone(settings),revision:1});
+const forecast={schultag:true,wochenende:false,ferien:false};
+const commonKeys=['name','icon','weekdays','calendar_entity','calendar_mode'];
+const common=day=>Object.fromEntries(commonKeys.map(key=>[key,clone(day[key])]));
+const sharedUpdate=(record,days)=>{
+ record.days=clone(days).map(day=>{const key=day.template_id||'shared_'+day.id,old=catalog.shared_days.find(t=>t.id===key),revision=(old?.revision||0)+(old&&JSON.stringify(common(old))===JSON.stringify(common(day))?0:1),template={id:key,...common(day),revision};
+  if(old)Object.assign(old,template);else catalog.shared_days.push(template);return {...day,template_id:key,template_revision:revision};});
+ for(const other of records.values())if(other!==record){let changed=false;for(const day of other.days||[]){const template=catalog.shared_days.find(t=>t.id===day.template_id);if(template&&JSON.stringify(common(template))!==JSON.stringify(common(day))){Object.assign(day,common(template),{template_revision:template.revision});other.settings.types[day.id].calendar_mode=day.calendar_mode;changed=true;}}if(changed)other.revision++;}
+ for(const template of catalog.shared_days)template.uses=[...records.values()].filter(r=>r.days?.some(d=>d.template_id===template.id)).length;
+};
 const listeners=new Set(),calls=[];let user='admin',fail=false,delay=null;
 const connection={async subscribeEvents(cb){listeners.add(cb);return ()=>listeners.delete(cb);}};
 const notify=alarm_id=>{for(const cb of listeners)cb({data:{alarm_id}});};
@@ -39,9 +50,10 @@ const makeHass=()=>({user:{id:user,is_admin:user==='admin'},connection,states:{}
  const record=records.get(msg.alarm_id||msg.config?.alarm_id);
  if(record&&user!=='admin'&&user!==record.binding.owner_id)throw Error('Dieser Wecker gehört einem anderen Benutzer.');
  if(msg.action==='day_info')return {date:msg.day_offset===0?'2026-11-13':'2026-11-14',kind:'wochenende',label:msg.day_offset===0?'Heute ist Schultag':'Morgen ist Wochenende'};
+ if(msg.action==='upcoming')return {types:Object.fromEntries(Object.entries(record.settings.types).map(([id,item])=>[id,{active:item.enabled&&Boolean(forecast[id]),label:'14.11. 06:00'}]))};
  if(msg.action==='get')return record&&record.binding.card_id===msg.card_id?clone(record):{exists:false,can_create:user==='admin',replaces_card:!!record};
- if(msg.action==='create'){if(record?.binding.card_id===msg.config.card_id&&JSON.stringify(record.binding)!==JSON.stringify(binding(msg.config)))throw Error('Geräte sind festgelegt.');const next={exists:true,binding:binding(msg.config),days:clone(msg.config.days),settings:{...clone(settings),types:Object.fromEntries(msg.config.days.map(d=>[d.id,{...(clone(settings.types[d.id]||{time:'06:00',music:false,presets:[]})),enabled:false,music:d.music_mode==='always',calendar_mode:d.id==='schultag'?'no_event':'event',sunrise_minutes:0}]))},revision:1};records.set(msg.config.alarm_id,next);notify(msg.config.alarm_id);return clone(next);}
- if(msg.action==='configure_days'){if(user!=='admin')throw Error('Keine Berechtigung');if(msg.revision!==record.revision)throw {code:'conflict',message:'Auf einem anderen Gerät geändert.'};const previous=record.settings.types;record.days=clone(msg.days);record.settings.types=Object.fromEntries(msg.days.map(d=>[d.id,{...(previous[d.id]||{time:'06:00',enabled:false,music:d.music_mode==='always',presets:[],sunrise_minutes:0}),calendar_mode:d.calendar_mode}]));record.revision++;notify(msg.alarm_id);return clone(record);}
+ if(msg.action==='create'){if(record?.binding.card_id===msg.config.card_id&&JSON.stringify(record.binding)!==JSON.stringify(binding(msg.config)))throw Error('Geräte sind festgelegt.');const next={exists:true,binding:binding(msg.config),name:msg.config.name,version:'1.4.0',days:clone(msg.config.days),settings:{...clone(settings),types:Object.fromEntries(msg.config.days.map(d=>[d.id,{...(clone(settings.types[d.id]||{time:'06:00',music:false,presets:[]})),enabled:false,music:d.music_mode==='always',calendar_mode:d.calendar_mode,sunrise_minutes:0}]))},revision:1};records.set(msg.config.alarm_id,next);sharedUpdate(next,msg.config.days);notify(msg.config.alarm_id);return clone(next);}
+ if(msg.action==='configure_days'||msg.action==='configure'){if(user!=='admin')throw Error('Keine Berechtigung');if(msg.revision!==record.revision)throw {code:'conflict',message:'Auf einem anderen Gerät geändert.'};const previous=record.settings.types,days=msg.days||msg.config.days;if(msg.config){record.binding=binding(msg.config);record.name=msg.config.name;}sharedUpdate(record,days);record.settings.types=Object.fromEntries(record.days.map(d=>[d.id,{...(previous[d.id]||{time:'06:00',enabled:false,music:d.music_mode==='always',presets:[],sunrise_minutes:0}),calendar_mode:d.calendar_mode}]));record.revision++;notify(msg.alarm_id||msg.config.alarm_id);return clone(record);}
  if(msg.action==='set_enabled'){if(fail)throw {code:'save_failed',message:'Speichern fehlgeschlagen'};const day=record.days?.find(d=>d.id===msg.kind);if((day?.confirm_disable||msg.kind==='schultag')&&record.settings.types[msg.kind].enabled&&!msg.enabled&&!msg.confirm_disable?.includes(msg.kind))throw {code:'confirmation_required',message:'Ausschalten bitte bestätigen'};record.settings.types[msg.kind].enabled=msg.enabled;record.revision++;notify(msg.alarm_id);return clone(record);}
  if(msg.action==='update'){if(msg.revision!==record.revision)throw {code:'conflict',message:'Auf einem anderen Gerät geändert.'};record.settings=clone(msg.settings);record.revision++;notify(msg.alarm_id);return clone(record);}
  }});
@@ -55,7 +67,7 @@ if(new URLSearchParams(location.search).has('editor')){
  editor.hass=makeHass();editor.addEventListener('config-changed',event=>{window.wakeDemo.edited=event.detail.config;});document.querySelector('#editor').append(editor);
 }
 document.querySelector('#theme').onclick=()=>document.body.classList.toggle('dark');
-window.wakeDemo={card,editor,config,records,catalog,calls,listeners,notify,makeHass,edited:null,
+window.wakeDemo={card,editor,config,records,catalog,calls,listeners,notify,makeHass,forecast,edited:null,
  set fail(value){fail=value},set delay(value){delay=value},
  switchUser(value){user=value;card.hass=makeHass();if(editor)editor.hass=makeHass();},
  remoteChange(change){const record=records.get(config.alarm_id);change(record);record.revision++;notify(config.alarm_id);}};

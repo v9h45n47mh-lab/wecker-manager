@@ -475,3 +475,109 @@ class WakeCardTests(IsolatedAsyncioTestCase):
         self.assertEqual(tomorrow['date'],'2026-11-14');self.assertEqual(tomorrow['types'],[])
         with self.assertRaises(self.wake.AccessError):
             await self.wake.tomorrow_info(hass,owner,config['alarm_id'],config['card_id'],2)
+
+    def add_other_account(self,hass,other):
+        music=next(iter(hass.data['music_manager'].values()))
+        music.options['accounts'].append(gateway_fixture.account(user=other.id,ma='ma-b',provider='apple_music--b'))
+        hass.mass.auth.get_user.side_effect=lambda user_id:NS(enabled=True,role='user',provider_filter=['apple_music--b' if user_id=='ma-b' else 'apple_music--a'])
+
+    async def test_full_card_reconfiguration_preserves_identity_times_and_updates_ownership(self):
+        hass,entry,owner,admin,other,config,_,_=self.fixture()
+        data=await self.activate(hass,admin,config,time='07:23')
+        self.add_other_account(hass,other)
+        changed={**data['binding'],'name':'Pauls Wecker','owner_id':other.id,'speakers':['media_player.second'],
+                 'covers':[{'entity_id':'cover.two','position':40}],'lights':[],'days':data['days']}
+        before=deepcopy(entry.options)
+        with self.assertRaises(self.wake.AccessError):
+            await self.wake.create_card(hass,owner,changed,reconfigure=True,revision=data['revision'])
+        with self.assertRaises(self.wake.AccessError):
+            await self.wake.create_card(hass,admin,{**changed,'speakers':['media_player.missing']},reconfigure=True,revision=data['revision'])
+        self.assertEqual(entry.options,before)
+        result=await self.wake.create_card(hass,admin,changed,reconfigure=True,revision=data['revision'])
+        self.assertEqual(result['binding']['card_id'],config['card_id']);self.assertEqual(result['name'],'Pauls Wecker')
+        self.assertEqual(result['binding']['owner_id'],other.id);self.assertEqual(result['binding']['covers'][0]['position'],40)
+        self.assertEqual(result['settings']['types']['schultag']['time'],'07:23');self.assertTrue(result['settings']['types']['schultag']['enabled'])
+        self.assertNotIn(config['card_id'],entry.options['wake_cards'][config['alarm_id']]['retired_card_ids'])
+        with self.assertRaises(self.wake.AccessError):await self.wake.checked_record(hass,owner,config['alarm_id'],config['card_id'])
+        await self.wake.checked_record(hass,other,config['alarm_id'],config['card_id'])
+        with self.assertRaises(self.wake.AccessError) as error:
+            await self.wake.create_card(hass,admin,changed,reconfigure=True,revision=data['revision'])
+        self.assertEqual(error.exception.code,'conflict')
+
+    async def test_shared_days_reuse_and_propagate_rules_but_keep_card_times_and_policies(self):
+        hass,entry,owner,admin,other,c,_,_=self.fixture()
+        c['days']=[self.custom_day(calendar_mode='no_event')]
+        first=await self.activate(hass,admin,c,kind='arbeit',time='06:15')
+        self.add_other_account(hass,other)
+        second_day={**first['days'][0],'id':'paul_school','music_mode':'switchable','confirm_disable':False}
+        pc={**c,'alarm_id':'paul_alarm','card_id':'paul_card','owner_id':other.id,'speakers':['media_player.second'],'days':[second_day]}
+        second=await self.wake.create_card(hass,admin,pc)
+        settings=deepcopy(second['settings']);settings['types']['paul_school'].update(time='07:45',enabled=True,music=False)
+        second=await self.wake.update_card(hass,other,pc['alarm_id'],pc['card_id'],settings,second['revision'])
+        catalog=await self.wake.catalog(hass,admin,other.id)
+        self.assertEqual(len(catalog['shared_days']),1);self.assertEqual(catalog['shared_days'][0]['uses'],2)
+        days=[{**first['days'][0],'name':'Schultag','weekdays':[0,2,4]}]
+        await self.wake.configure_days(hass,admin,c['alarm_id'],c['card_id'],days,first['revision'])
+        paul=entry.options['wake_cards'][pc['alarm_id']]
+        self.assertEqual(paul['days'][0]['name'],'Schultag');self.assertEqual(paul['days'][0]['weekdays'],[0,2,4])
+        self.assertEqual(paul['settings']['types']['paul_school']['time'],'07:45');self.assertTrue(paul['settings']['types']['paul_school']['enabled'])
+        self.assertFalse(paul['settings']['types']['paul_school']['music']);self.assertFalse(paul['days'][0]['confirm_disable'])
+        self.assertEqual(entry.options['wake_cards'][c['alarm_id']]['settings']['types']['arbeit']['time'],'06:15')
+        self.assertEqual(paul['revision'],second['revision']+1)
+        stale={**c,'alarm_id':'third_alarm','card_id':'third_card','days':first['days']}
+        with self.assertRaises(self.wake.AccessError) as error:await self.wake.create_card(hass,admin,stale)
+        self.assertEqual(error.exception.code,'conflict')
+
+    async def test_shared_calendar_change_requires_access_for_every_linked_owner_and_is_atomic(self):
+        hass,entry,owner,admin,other,c,states,_=self.fixture()
+        c['days']=[self.custom_day(calendar_entity='')]
+        first=await self.wake.create_card(hass,admin,c)
+        self.add_other_account(hass,other)
+        pc={**c,'alarm_id':'paul_alarm','card_id':'paul_card','owner_id':other.id,'days':first['days']}
+        await self.wake.create_card(hass,admin,pc)
+        states['calendar.private']=NS(entity_id='calendar.private',state='off',attributes={})
+        other.permissions=NS(check_entity=lambda entity_id,policy:entity_id!='calendar.private')
+        before=deepcopy(entry.options)
+        with self.assertRaises(self.wake.AccessError):
+            await self.wake.configure_days(hass,admin,c['alarm_id'],c['card_id'],[{**first['days'][0],'calendar_entity':'calendar.private'}],first['revision'])
+        self.assertEqual(entry.options,before)
+
+    async def test_upcoming_window_checks_enabled_weekdays_boundaries_and_completed_runs(self):
+        hass,entry,owner,admin,_,c,_,_=self.fixture()
+        type(self).now=self.now.replace(hour=10)
+        days=[self.custom_day(id=key,name=key,calendar_entity='',weekdays=weekdays,confirm_disable=False) for key,weekdays in [('today',list(range(7))),('tomorrow',list(range(7))),('edge',list(range(7))),('late',[5]),('off',list(range(7))),('wrong_day',[0])]]
+        c['days']=days;data=await self.wake.create_card(hass,admin,c);settings=deepcopy(data['settings'])
+        for key,time in [('today','11:00'),('tomorrow','09:00'),('edge','10:00'),('late','10:01'),('off','12:00'),('wrong_day','11:00')]:settings['types'][key].update(enabled=key!='off',time=time)
+        await self.wake.update_card(hass,owner,c['alarm_id'],c['card_id'],settings,data['revision'])
+        record=entry.options['wake_cards'][c['alarm_id']];record['runs']['2026-11-13/edge/wake']=True
+        result=await self.wake.upcoming_info(hass,owner,c['alarm_id'],c['card_id'])
+        self.assertEqual({key:item['active'] for key,item in result['types'].items()},{'today':True,'tomorrow':True,'edge':True,'late':False,'off':False,'wrong_day':False})
+        self.assertEqual(result['types']['edge']['at'],'2026-11-14T09:00:00+00:00')
+        record['runs']['2026-11-13/today/wake']=True
+        result=await self.wake.upcoming_info(hass,owner,c['alarm_id'],c['card_id'])
+        self.assertFalse(result['types']['today']['active'])
+
+    async def test_upcoming_uses_all_day_rules_for_the_correct_date_and_fails_closed(self):
+        hass,_,owner,admin,other,c,_,_=self.fixture();type(self).now=self.now.replace(hour=23)
+        c['days']=[self.custom_day(id='booked',name='Gebucht',weekdays=list(range(7)),calendar_mode='event',confirm_disable=False),self.custom_day(id='free',name='Frei',weekdays=list(range(7)),calendar_mode='no_event',confirm_disable=False)]
+        data=await self.wake.create_card(hass,admin,c);settings=deepcopy(data['settings'])
+        for item in settings['types'].values():item.update(enabled=True,time='08:00')
+        await self.wake.update_card(hass,owner,c['alarm_id'],c['card_id'],settings,data['revision'])
+        hass.services.async_call.return_value={'calendar.school':{'events':[{'start':'2026-11-14','end':'2026-11-15'}]}}
+        result=await self.wake.upcoming_info(hass,owner,c['alarm_id'],c['card_id'])
+        self.assertTrue(result['types']['booked']['active']);self.assertFalse(result['types']['free']['active'])
+        self.wake.runtime(hass)['calendar_days']={};hass.services.async_call.side_effect=RuntimeError('Unavailable')
+        result=await self.wake.upcoming_info(hass,owner,c['alarm_id'],c['card_id'])
+        self.assertFalse(any(item['active'] for item in result['types'].values()))
+        with self.assertRaises(self.wake.AccessError):await self.wake.upcoming_info(hass,other,c['alarm_id'],c['card_id'])
+
+    async def test_upcoming_means_24_elapsed_hours_across_both_clock_changes(self):
+        for date_,times,expected in [(datetime(2026,10,24,10,tzinfo=ZoneInfo('Europe/Berlin')),['09:00','09:30'],[True,False]),(datetime(2026,3,28,10,tzinfo=ZoneInfo('Europe/Berlin')),['10:30','02:30'],[True,False])]:
+            with self.subTest(date=date_):
+                hass,_,owner,admin,_,c,_,_=self.fixture();type(self).now=date_
+                c['days']=[self.custom_day(id='a',name='A',weekdays=[6],calendar_entity='',confirm_disable=False),self.custom_day(id='b',name='B',weekdays=[6],calendar_entity='',confirm_disable=False)]
+                data=await self.wake.create_card(hass,admin,c);settings=deepcopy(data['settings'])
+                for key,time in zip(['a','b'],times):settings['types'][key].update(enabled=True,time=time)
+                await self.wake.update_card(hass,owner,c['alarm_id'],c['card_id'],settings,data['revision'])
+                result=await self.wake.upcoming_info(hass,owner,c['alarm_id'],c['card_id'])
+                self.assertEqual([result['types'][key]['active'] for key in ['a','b']],expected)
