@@ -1,4 +1,4 @@
-/* Wecker 1.4.0 | MIT | HA UI Kit 1.4.1 bundled unchanged */
+/* Wecker 1.5.0 | MIT | HA UI Kit 1.4.1 bundled unchanged */
 const WeckerManagerUI=(()=>{
 /* HA UI Kit 1.4.1 | MIT | Source priority: Shutter, Light, Essensplaner, Haushalt, Spuelmaschine, Access */
 const UI_VERSION = "1.4.1";
@@ -577,7 +577,7 @@ return {UI_VERSION,UI_CSS,ICON_NAMES,icon,MUSIC_PLAYER_CSS,escapeHtml,button,pro
 (()=>{
 const {UI_CSS, navigation, row, section, button, iconButton, filterButton, toggle, dialog, confirmDialog, field, selectField, rangeControl, multiSelect, whiteTemperatureControl, colourPicker, weekdayPicker, notice, loadingState, versionInfo, bindUI, escapeHtml} = WeckerManagerUI;
 
-const CARD_VERSION='1.4.0';
+const CARD_VERSION='1.5.0';
 
 const defaultDays = (calendar='') => [
   {id:'schultag',name:'Schultag',icon:'mdi:school',weekdays:[0,1,2,3,4],music_mode:'always',confirm_disable:true,calendar_entity:calendar},
@@ -588,6 +588,9 @@ const DAY_SYMBOLS = [{value:'mdi:school',label:'Schule'},{value:'mdi:weather-sun
 const weekdayText = days => days.map(n=>['Mo','Di','Mi','Do','Fr','Sa','So'][n]).join(', ');
 const calendarMode = day => day.calendar_mode||(day.id==='schultag'?'no_event':'event');
 const calendarText = day => calendarMode(day)==='no_event'?'an freien Kalendertagen':'an gebuchten Kalendertagen';
+const dayName = day => String(day.name||'').trim().toLocaleLowerCase();
+const dayRule = day => JSON.stringify([dayName(day),day.icon,[...day.weekdays].sort(),day.calendar_entity||'',day.calendar_entity?calendarMode(day):'no_event']);
+const existingDay = (days,day) => days.find(d=>day.template_id&&d.template_id===day.template_id)||days.find(d=>dayRule(d)===dayRule(day))||days.find(d=>dayName(d)===dayName(day));
 const wakeRow = (symbol,options,kind='') => `<div class="wake-row"><span class="wake-symbol${kind?' wake-day-symbol':''}"${kind?` data-wake-kind="${escapeHtml(kind)}" role="img"`:' aria-hidden="true"'}><ha-icon icon="${escapeHtml(symbol)}"></ha-icon></span>${row(options)}</div>`;
 const displayTime = time => time.replace(/^0/,'');
 const WAKE_ID = /^[a-z0-9][a-z0-9_]{0,63}$/;
@@ -595,7 +598,7 @@ const copy = value => JSON.parse(JSON.stringify(value));
 const list = value => Array.isArray(value)?value:[];
 const freshId = () => 'wake_'+(globalThis.crypto?.randomUUID?.().replaceAll('-','')||Date.now().toString(36)+Math.random().toString(36).slice(2));
 const emptyConfig = () => ({type:'custom:wecker-manager-card',alarm_id:freshId(),card_id:freshId(),owner_id:'',speakers:[],covers:[],lights:[],calendar_entity:'',sunrise_minutes:0,days:[]});
-const fixed = config => ({card_id:config.card_id,alarm_id:config.alarm_id,owner_id:config.owner_id||'',speakers:config.speakers||[],covers:config.covers||[],lights:config.lights||[],calendar_entity:config.calendar_entity||'',sunrise_minutes:config.sunrise_minutes||0});
+const fixed = config => ({card_id:config.card_id,alarm_id:config.alarm_id,owner_id:config.owner_id||'',speakers:config.speakers||[],covers:config.covers||[],lights:config.lights||[],calendar_entity:config.calendar_entity||'',sunrise_minutes:config.sunrise_minutes||0,hue_scene:config.hue_scene||''});
 const canonical = value => Array.isArray(value)?value.map(canonical):value&&typeof value==='object'?Object.fromEntries(Object.keys(value).sort().map(key=>[key,canonical(value[key])])):value;
 const same = (a,b) => JSON.stringify(canonical(fixed(a)))===JSON.stringify(canonical(fixed(b)));
 const message = error => String(error?.message||error?.code||error);
@@ -648,12 +651,12 @@ class MusicManagerAlarmCard extends HTMLElement {
   set hass(hass){
     const changed=this._hass?.user?.id!==hass?.user?.id||this._hass?.connection!==hass?.connection;
     this._hass=hass;if(changed){this._reset();this._ensure();this._load();}
-    if(this._music)this._music.hass=hass;if(this._editor)this._editor.hass=hass;
+    if(this._music)this._music.hass=hass;if(this._editor)this._editor.hass=hass;if(this._typeManager)this._typeManager.hass=hass;
     if(this._data?.exists)this._loadDay();
   }
   connectedCallback(){this._ensure();if(!this._unbind)this._unbind=bindUI(this.shadowRoot,event=>this._action(event));if(!this._settingsChange){this._settingsChange=event=>this._changeCardField(event);this.shadowRoot.addEventListener('change',this._settingsChange);}this._load();this._scheduleDay();}
   disconnectedCallback(){clearTimeout(this._dayTimer);this._reset();this._unbind?.();this._unbind=null;this.shadowRoot.removeEventListener('change',this._settingsChange);this._settingsChange=null;}
-  _reset(){this._epoch++;this._busy=false;this._loading=false;this._data=null;this._loaded=false;this._draft=null;this._error='';this._disableTarget=null;this._dayInfo=null;this._dayKey=null;this._dayLoading=false;this._waitingMusic=false;this._music?.remove();this._music=null;this._editor?.remove();this._editor=null;this._unsubscribe?.();this._unsubscribe=null;this._subscribing=false;for(const d of this.shadowRoot.querySelectorAll('dialog[open]'))d.close();}
+  _reset(){this._epoch++;this._busy=false;this._loading=false;this._data=null;this._loaded=false;this._draft=null;this._error='';this._disableTarget=null;this._dayInfo=null;this._dayKey=null;this._dayLoading=false;this._waitingMusic=false;this._music?.remove();this._music=null;this._editor?.remove();this._editor=null;this._typeManager?.remove();this._typeManager=null;this._unsubscribe?.();this._unsubscribe=null;this._subscribing=false;for(const d of this.shadowRoot.querySelectorAll('dialog[open]'))d.close();}
   _ensure(){
     if(!this._config||this._body)return;
     this.shadowRoot.innerHTML=`<style>${UI_CSS}
@@ -666,13 +669,15 @@ class MusicManagerAlarmCard extends HTMLElement {
       @media(max-width:360px){.wake-row{grid-template-columns:var(--fui-icon) minmax(0,1fr)}}
       .wake-settings{display:grid;gap:16px}.wake-preset-line{display:flex;align-items:center;gap:8px;min-width:0}.wake-preset-line>:first-child{flex:1}
       .wake-settings .toolbar{flex-wrap:wrap}.wake-wheel-content{min-width:0}#wake-time-dialog{max-width:min(380px,calc(100vw - 24px))}
-      #wake-settings-dialog{width:min(480px,calc(100vw - 24px))}#wake-edit-dialog{width:min(620px,calc(100vw - 24px))}
+      #wake-settings-dialog{width:min(480px,calc(100vw - 24px))}#wake-edit-dialog{width:min(620px,calc(100vw - 24px))}#wake-templates-dialog{width:min(560px,calc(100vw - 24px))}
     </style><ha-card aria-label="${escapeHtml(this._config.name||'Wecker')}"><main class="wake-content"><div id="wake-status" aria-live="polite"></div><div class="wake-head"><div id="wake-music"></div><div id="wake-header"></div></div><div id="wake-types"></div></main></ha-card>
       ${dialog({id:'wake-settings-dialog',title:'Wecker-Einstellungen',content:'<div id="wake-settings-status"></div><div class="wake-settings" id="wake-settings"></div>',actions:button({label:'Abbrechen',action:'cancel-settings'})+button({label:'Speichern',action:'save-settings',variant:'primary'})})}
       ${dialog({id:'wake-time-dialog',title:'Weckzeit einstellen',content:'<div id="wake-time-status"></div><div class="wake-wheel-content" id="wake-wheel"></div>',actions:button({label:'Abbrechen',action:'cancel-time'})+button({label:'Übernehmen',action:'save-time',variant:'primary'})})}
       ${dialog({id:'wake-edit-dialog',title:'Wecker vollständig bearbeiten',content:'<div id="wake-edit-body"></div>'})}
+      ${dialog({id:'wake-templates-dialog',title:'Tagestypen verwalten',content:'<div id="wake-templates-body"></div>'})}
       ${confirmDialog({id:'wake-confirm-dialog',title:'Wecker ausschalten?',message:'Willst du diesen Wecker wirklich ausschalten?',confirmLabel:'Ausschalten',confirmAction:'confirm-disable',danger:false})}`;
     this._body=this.shadowRoot.getElementById('wake-types');
+    this._templatesDialog=this.shadowRoot.getElementById('wake-templates-dialog');this._templatesDialog.addEventListener('close',()=>{if(!this._templatesDialog.open){this._typeManager?.remove();this._typeManager=null;this._load(true);}});
     this._editDialog=this.shadowRoot.getElementById('wake-edit-dialog');this._editDialog.addEventListener('close',()=>{if(!this._editDialog.open){this._editor?.remove();this._editor=null;if(this._remoteDirty){this._remoteDirty=false;this._load(true);}}});
     this._settingsDialog=this.shadowRoot.getElementById('wake-settings-dialog');this._timeDialog=this.shadowRoot.getElementById('wake-time-dialog');this._confirmDialog=this.shadowRoot.getElementById('wake-confirm-dialog');const status=document.createElement('div');status.id='wake-confirm-status';this._confirmDialog.querySelector('.modal-body').prepend(status);this._confirmDialog.addEventListener('close',()=>{if(!this._confirmDialog.open)this._disableTarget=null;});
     this._settingsDialog.addEventListener('close',()=>{this._draft=null;this.shadowRoot.querySelector('[data-action="settings"]')?.focus();if(this._remoteDirty){this._remoteDirty=false;this._load(true);}});
@@ -709,7 +714,7 @@ class MusicManagerAlarmCard extends HTMLElement {
   async _subscribe(epoch){
     if(this._unsubscribe||this._subscribing||!this._hass.connection?.subscribeEvents)return;
     this._subscribing=true;
-    try{const unsubscribe=await this._hass.connection.subscribeEvents(event=>{if(event.data?.alarm_id!==this._config.alarm_id)return;if(this._draft||this._timeDialog?.open||this._editDialog?.open||this._busy||this._loading){this._remoteDirty=true;return;}this._load(true);},'wecker_manager_card_updated');if(epoch!==this._epoch)unsubscribe();else this._unsubscribe=unsubscribe;}
+    try{const unsubscribe=await this._hass.connection.subscribeEvents(event=>{if(event.data?.alarm_id!==this._config.alarm_id)return;if(this._draft||this._timeDialog?.open||this._editDialog?.open||this._templatesDialog?.open||this._busy||this._loading){this._remoteDirty=true;return;}this._load(true);},'wecker_manager_card_updated');if(epoch!==this._epoch)unsubscribe();else this._unsubscribe=unsubscribe;}
     catch{}finally{if(epoch===this._epoch)this._subscribing=false;}
   }
   _days(){return this._data?.days||defaultDays(this._config?.calendar_entity||'');}
@@ -735,7 +740,7 @@ class MusicManagerAlarmCard extends HTMLElement {
       const durations=[...new Set([0,5,10,15,20,30,sunrise])].sort((a,b)=>a-b);
       const light=selectField({id:kind==='schultag'?'wake-sunrise-setting':'wake-sunrise-'+kind,label:'Sonnenaufgang',value:String(sunrise),disabled:!available&&!sunrise,options:durations.map(n=>({value:String(n),label:n?`${n} Minuten vor der Weckzeit`:'Aus'})),hint:available?'Die zugeordneten dimmbaren Lichter werden bis zur Weckzeit aufgeblendet.':'Hierfür wird eine zugeordnete dimmbare Lampe benötigt.'}).replace('<select ',`<select data-wake-sunrise="${escapeHtml(kind)}" `);
       return section({id:`presets-${kind}`,title:day.name,content:light+`<div><p class="hint">Bis zu drei Schnellzeiten</p>${item.presets.map((time,slot)=>`<div class="wake-preset-line">${button({label:time,action:'preset-edit',data:{kind,slot}})}${iconButton({icon:'trash',label:`Schnellzeit ${time} entfernen`,action:'preset-remove',data:{kind,slot}})}</div>`).join('')}${item.presets.length<3?button({label:'Zeit hinzufügen',icon:'add',action:'preset-add',data:{kind}}):''}</div>`});
-    }).join('')+(this._hass?.user?.is_admin?button({label:'Gesamte Karte bearbeiten',icon:'edit',action:'edit-card'}):'');
+    }).join('')+(this._hass?.user?.is_admin?button({label:'Gesamte Karte bearbeiten',icon:'edit',action:'edit-card'})+button({label:'Tagestypen verwalten',icon:'menu',action:'manage-templates'}):'');
   }
   async _changeCardField(event){
     const element=event.target;
@@ -761,6 +766,7 @@ class MusicManagerAlarmCard extends HTMLElement {
     if(!this._data?.exists)return;
     if(action==='settings'){this._draft={...copy(this._data.settings),sunrise_minutes:this._data.settings.sunrise_minutes??this._config.sunrise_minutes??0};this._settings();this._settingsDialog.showModal();return;}
     if(action==='cancel-settings'){this._settingsDialog.close();return;}
+    if(action==='manage-templates'&&this._hass?.user?.is_admin){this._settingsDialog.close();this._typeManager=document.createElement('wecker-manager-day-manager');this._typeManager.hass=this._hass;this.shadowRoot.getElementById('wake-templates-body').replaceChildren(this._typeManager);this._templatesDialog.showModal();return;}
     if(action==='edit-card'&&this._hass?.user?.is_admin){this._settingsDialog.close();const editor=document.createElement('wecker-manager-card-editor');editor.autoEdit=true;editor.setConfig({...this._config,days:copy(this._days())});editor.hass=this._hass;editor.addEventListener('wecker-card-cancel',()=>this._editDialog.close());editor.addEventListener('wecker-card-saved',event=>{this._config={...event.detail.config};this._editDialog.close();this._load(true);});this._editor=editor;this.shadowRoot.getElementById('wake-edit-body').replaceChildren(editor);this._editDialog.showModal();return;}
     if(action==='save-settings'){if(await this._save(copy(this._draft)))this._settingsDialog.close();return;}
     if(action==='time'){this._openTime(data.kind);return;}
@@ -848,7 +854,7 @@ class MusicManagerAlarmCardEditor extends HTMLElement {
   async _subscribe(){
     if(!this.isConnected||this._unsubscribe||this._subscriptionPending||!this._hass?.connection?.subscribeEvents)return;
     const epoch=this._epoch;this._subscriptionPending=true;
-    try{const unsubscribe=await this._hass.connection.subscribeEvents(event=>{if(event.data?.alarm_id===this._config?.alarm_id){if(this._loading||this._creating)this._again=true;else this._load(true);}},'wecker_manager_card_updated');if(epoch!==this._epoch)unsubscribe();else this._unsubscribe=unsubscribe;}
+    try{const unsubscribe=await this._hass.connection.subscribeEvents(event=>{if(event.data?.day_templates||event.data?.alarm_id===this._config?.alarm_id){if(this._loading||this._creating)this._again=true;else this._load(true);}},'wecker_manager_card_updated');if(epoch!==this._epoch)unsubscribe();else this._unsubscribe=unsubscribe;}
     catch{}finally{this._subscriptionPending=false;}
   }
   async _load(force=false){
@@ -865,7 +871,7 @@ class MusicManagerAlarmCardEditor extends HTMLElement {
         const owner=this._config.owner_id;
         const response=await this._hass.callWS({type:'wecker_manager/card',action:'catalog',...(owner?{owner_id:owner}:{})});
         if(epoch!==this._epoch||owner!==this._config.owner_id){this._again=true;return;}
-        const catalog=Object.fromEntries(['accounts','speakers','covers','lights','calendars','shared_days'].map(kind=>[kind,list(response?.[kind])]));
+        const catalog=Object.fromEntries(['accounts','speakers','covers','lights','calendars','shared_days','hue_scenes'].map(kind=>[kind,list(response?.[kind])]));
         this._catalog=catalog;
         const c=this._config;
         if(owner&&(!record.exists||this._editingCard)){
@@ -875,6 +881,7 @@ class MusicManagerAlarmCardEditor extends HTMLElement {
             const kept=c[kind].filter(i=>allowed.has(kind==='speakers'?i:i.entity_id));removed+=c[kind].length-kept.length;c[kind]=kept;
           }
           if(c.calendar_entity&&!(catalog.calendars||[]).some(i=>i.id===c.calendar_entity)){c.calendar_entity='';removed++;}
+          if(this._pruneScene())removed++;
           if(removed){this._hint='Geräte ohne Freigabe für dieses Musikkonto wurden aus der Auswahl entfernt.';this._emit();}
           if(!this._calendarsValid())this._hint='Ein Kalender ist für dieses Musikkonto nicht freigegeben. Bitte prüfe die Kalenderauswahl bei den Tagestypen.';
         }
@@ -885,7 +892,19 @@ class MusicManagerAlarmCardEditor extends HTMLElement {
   }
   _label(kind,id){return this._catalog?.[kind]?.find(i=>i.id===id)?.label||this._hass?.states?.[id]?.attributes?.friendly_name||id;}
   _canDim(){return this._config.lights.some(item=>(this._catalog?.lights?.find(i=>i.id===item.entity_id)?.attributes?.supported_color_modes||[]).some(mode=>!['onoff','unknown'].includes(mode)));}
-  _daysValid(){const days=this._config.days;return days.length>0&&days.length<=12&&new Set(days.map(d=>d.id)).size===days.length&&days.every(d=>String(d.name||'').trim()&&Array.isArray(d.weekdays)&&d.weekdays.length&&/^mdi:[a-z0-9-]+$/.test(d.icon));}
+  _lightMembers(id,seen=new Set()){
+    if(seen.has(id))return [];const item=this._catalog?.lights?.find(light=>light.id===id);if(!item)return [];
+    const children=item.attributes?.entity_id;if(!Array.isArray(children)||!children.length)return item.attributes?.is_hue_group?[]:[id];
+    const next=new Set(seen).add(id),groups=children.map(child=>this._lightMembers(child,next));return groups.every(group=>group.length)?[...new Set(groups.flat())]:[];
+  }
+  _matchingHueScenes(){
+    const groups=this._config.lights.map(item=>this._lightMembers(item.entity_id)),selected=new Set(groups.flat());
+    return list(this._catalog?.hue_scenes).filter(scene=>scene.members.length&&scene.members.every(id=>selected.has(id))&&groups.every(group=>!group.some(id=>scene.members.includes(id))||group.every(id=>scene.members.includes(id))));
+  }
+  _sceneCovers(id){const scene=this._matchingHueScenes().find(scene=>scene.id===this._config.hue_scene),members=this._lightMembers(id);return scene&&members.length&&members.every(member=>scene.members.includes(member));}
+  _pruneScene(){if(this._config.hue_scene&&!this._matchingHueScenes().some(scene=>scene.id===this._config.hue_scene)){this._config.hue_scene='';this._hint='Die bisherige Hue-Szene passt nicht mehr zur Lichtauswahl. Bitte wähle eine neue Szene.';return true;}return false;}
+  _sceneField(){const scenes=this._matchingHueScenes();return scenes.length||this._config.hue_scene?selectField({id:'wake-hue-scene',label:'Hue-Szene',value:this._config.hue_scene||'',options:[{value:'',label:'Lampen einzeln einstellen'},...scenes.map(scene=>({value:scene.id,label:scene.label}))],hint:'Die Szene bestimmt Helligkeit und Farbe ihrer Lampen. Weitere gewählte Lampen verwenden ihre individuellen Einstellungen. Es werden nur Szenen ohne zusätzliche Lampen angeboten.'}):'';}
+  _daysValid(){const days=this._config.days;return days.length>0&&days.length<=12&&new Set(days.map(d=>d.id)).size===days.length&&new Set(days.map(dayName)).size===days.length&&days.every(d=>String(d.name||'').trim()&&Array.isArray(d.weekdays)&&d.weekdays.length&&/^mdi:[a-z0-9-]+$/.test(d.icon));}
   _calendarsValid(){return !this._config.owner_id||this._config.days.every(d=>!d.calendar_entity||this._catalog?.calendars.some(c=>c.id===d.calendar_entity));}
   _musicValid(){return Boolean(this._config.owner_id&&this._config.speakers.length&&String(this._config.name??'Wecker').trim()&&this._calendarsValid());}
   _render(){
@@ -910,21 +929,21 @@ class MusicManagerAlarmCardEditor extends HTMLElement {
       selectField({id:'wake-owner',label:'Musikkonto',value:c.owner_id,required:true,options:[{value:'',label:'Musikkonto auswählen'},...cat.accounts]})+
       (c.owner_id?row({title:'Musikboxen',description:c.speakers.length?`${c.speakers.length} ausgewählt`:'Wähle mindestens eine Box.',trailing:button({label:c.speakers.length?'Auswahl ändern':'Boxen auswählen',action:'picker-open',data:{kind:'speakers'}})})+this._selected('speakers'):'<p class="hint">Wähle zuerst dein Musikkonto. Danach stehen die dafür freigegebenen Boxen zur Auswahl.</p>');
     if(this._step===2)return row({title:'Gewählte Rollläden',description:c.covers.length?`${c.covers.length} ausgewählt`:'Dein Wecker funktioniert auch ohne Rollläden.',trailing:button({label:c.covers.length?'Auswahl ändern':'Rollläden auswählen',action:'picker-open',data:{kind:'covers'}})})+this._selected('covers');
-    if(this._step===3)return row({title:'Gewählte Lichter',description:c.lights.length?`${c.lights.length} ausgewählt`:'Dein Wecker funktioniert auch ohne Licht.',trailing:button({label:c.lights.length?'Auswahl ändern':'Lichter auswählen',action:'picker-open',data:{kind:'lights'}})})+this._selected('lights');
+    if(this._step===3)return row({title:'Gewählte Lichter',description:c.lights.length?`${c.lights.length} ausgewählt`:'Dein Wecker funktioniert auch ohne Licht.',trailing:button({label:c.lights.length?'Auswahl ändern':'Lichter auswählen',action:'picker-open',data:{kind:'lights'}})})+this._sceneField()+this._selected('lights');
     const account=cat.accounts.find(i=>i.value===c.owner_id)?.label||'Kein Konto';
     const summary=(title,description,step)=>row({title,description,trailing:button({label:'Ändern',action:'setup-go',data:{step}})});
     return (this._replaces?notice('Diese Neuanlage ersetzt die bisherige Karte für diesen Wecker.'): '')+
       summary('Tagestypen',`${c.days.length} eingerichtet`,0)+this._daysList(true)+
       summary(c.name||'Wecker',`Musikkonto: ${account}`,1)+this._selected('speakers',true)+
       summary('Rollläden',c.covers.length?`${c.covers.length} ausgewählt`:'Keine',2)+this._selected('covers',true)+
-      summary('Licht',c.lights.length?`${c.lights.length} ausgewählt`:'Keines',3)+this._selected('lights',true);
+      summary('Licht',c.lights.length?`${c.lights.length} ausgewählt`+(c.hue_scene?' · Hue-Szene: '+this._label('hue_scenes',c.hue_scene):''):'Keines',3)+this._selected('lights',true);
   }
   _daysList(readOnly=false){
     return `<div class="setup-list">${this._config.days.map(day=>`<div class="setup-day-row"><ha-icon icon="${escapeHtml(day.icon)}" aria-hidden="true"></ha-icon>${row({title:day.name,description:weekdayText(day.weekdays)+' · '+(day.music_mode==='always'?'Musik immer an':'Musik schaltbar')+' · '+(day.confirm_disable?'Ausschalten mit Bestätigung':'Ausschalten per Klick')+(day.calendar_entity?' · '+this._label('calendars',day.calendar_entity)+' · '+calendarText(day):' · ohne Kalender'),trailing:readOnly?'':iconButton({icon:'edit',label:day.name+' einstellen',action:'day-edit',data:{kind:day.id}})+iconButton({icon:'trash',label:day.name+' entfernen',action:'day-remove',data:{kind:day.id}})})}</div>`).join('')}</div>`;
   }
-  _daysPage(){const shared=this._catalog.shared_days.filter(t=>!this._config.days.some(d=>d.template_id===t.id));return (!this._config.days.length?notice('Noch keine Tagestypen angelegt. Verwende einen vorhandenen Tagestyp oder lege einen neuen an.'):'')+this._daysList()+(shared.length?`<div class="setup-dialog-content">${selectField({id:'setup-shared-day',label:'Gemeinsamen Tagestyp verwenden',value:this._sharedChoice||'',options:[{value:'',label:'Tagestyp auswählen'},...shared.map(t=>({value:t.id,label:t.name+' · '+weekdayText(t.weekdays)}))]})}${button({label:'Tagestyp übernehmen',action:'day-use',disabled:!this._sharedChoice||this._config.days.length>=12})}</div>`:'')+button({label:'Neuen Tagestyp anlegen',icon:'add',action:'day-add',disabled:this._config.days.length>=12})+notice('Gemeinsame Tagestypen können auf mehreren Weckerkarten verwendet werden. Weckzeit, Aktivierung und Musikschalter bleiben je Karte getrennt. Nur ganztägige Termine zählen.');}
+  _daysPage(){const shared=[...new Map(this._catalog.shared_days.map(t=>[dayRule(t),t])).values()].filter(t=>!this._config.days.some(d=>d.template_id===t.id));return (!this._config.days.length?notice('Noch keine Tagestypen angelegt. Verwende einen vorhandenen Tagestyp oder lege einen neuen an.'):'')+this._daysList()+(shared.length?`<div class="setup-dialog-content">${selectField({id:'setup-shared-day',label:'Gemeinsamen Tagestyp verwenden',value:this._sharedChoice||'',options:[{value:'',label:'Tagestyp auswählen'},...shared.map(t=>({value:t.id,label:t.name+' · '+weekdayText(t.weekdays)}))]})}${button({label:'Tagestyp übernehmen',action:'day-use',disabled:!this._sharedChoice||this._config.days.length>=12})}</div>`:'')+button({label:'Neuen Tagestyp anlegen',icon:'add',action:'day-add',disabled:this._config.days.length>=12})+notice('Gemeinsame Tagestypen können auf mehreren Weckerkarten verwendet werden. Weckzeit, Aktivierung und Musikschalter bleiben je Karte getrennt. Nur ganztägige Termine zählen.');}
   _openDay(kind,shared=null){
-    const day=this._config.days.find(d=>d.id===kind);
+    const day=this._config.days.find(d=>d.id===kind)||(shared?existingDay(this._config.days,{...shared,template_id:shared.id}):null);
     this._dayEdit=day?{...copy(day),calendar_mode:calendarMode(day)}:{id:freshId().replace('wake_','day_'),name:'',icon:'mdi:alarm',weekdays:[],music_mode:'switchable',confirm_disable:false,calendar_entity:'',calendar_mode:'no_event'};
     if(shared)Object.assign(this._dayEdit,{name:shared.name,icon:shared.icon,weekdays:copy(shared.weekdays),calendar_entity:shared.calendar_entity,calendar_mode:shared.calendar_mode,template_id:shared.id,template_revision:shared.revision});
     const d=this._dayEdit;
@@ -933,17 +952,20 @@ class MusicManagerAlarmCardEditor extends HTMLElement {
     this.shadowRoot.getElementById('setup-day-body').innerHTML=field({id:'day-name',label:'Name des Tagestyps',value:d.name,required:true,maxLength:60})+
       `<div class="setup-day-icon"><ha-icon id="day-icon-preview" icon="${escapeHtml(d.icon)}" aria-hidden="true"></ha-icon>${selectField({id:'day-icon',label:'Symbol',value:d.icon,options:symbols})}</div>`+
       weekdayPicker({id:'day-weekdays',label:'Gilt an diesen Wochentagen',values:d.weekdays,action:'day-weekdays'})+
-      selectField({id:'day-music',label:'Musik',value:d.music_mode,options:[{value:'always',label:'Immer an'},{value:'switchable',label:'In der Karte ein-/ausschaltbar'}]})+
-      selectField({id:'day-confirm',label:'Ausschalten des Weckers',value:d.confirm_disable?'confirm':'click',options:[{value:'click',label:'Mit einem Klick'},{value:'confirm',label:'Erst nach Bestätigung'}]})+
+      (this.dayManager?'':selectField({id:'day-music',label:'Musik',value:d.music_mode,options:[{value:'always',label:'Immer an'},{value:'switchable',label:'In der Karte ein-/ausschaltbar'}]})+
+      selectField({id:'day-confirm',label:'Ausschalten des Weckers',value:d.confirm_disable?'confirm':'click',options:[{value:'click',label:'Mit einem Klick'},{value:'confirm',label:'Erst nach Bestätigung'}]}))+
       selectField({id:'day-calendar',label:'Kalender prüfen (optional)',value:d.calendar_entity,options:[{value:'',label:'Ohne Kalenderprüfung'},...this._catalog.calendars.map(c=>({value:c.id,label:c.label}))]})+
-      `<div id="day-calendar-condition"${d.calendar_entity?'':' hidden'}>${selectField({id:'day-calendar-mode',label:'Wecken an',value:d.calendar_mode,disabled:!d.calendar_entity,options:[{value:'no_event',label:'Freien Kalendertagen'},{value:'event',label:'Gebuchten Kalendertagen'}],hint:'Frei: kein ganztägiger Termin. Gebucht: mindestens ein ganztägiger Termin. Nur ganztägige Termine zählen; Termine mit Uhrzeit werden ignoriert.'})}</div>`+(d.template_id?notice('Name, Symbol, Wochentage und Kalenderregeln werden gemeinsam verwendet. Änderungen gelten auch auf anderen Karten mit diesem Tagestyp. Musik und Ausschaltbestätigung gelten nur für diese Karte.'):'');
+      `<div id="day-calendar-condition"${d.calendar_entity?'':' hidden'}>${selectField({id:'day-calendar-mode',label:'Wecken an',value:d.calendar_mode,disabled:!d.calendar_entity,options:[{value:'no_event',label:'Freien Kalendertagen'},{value:'event',label:'Gebuchten Kalendertagen'}],hint:'Frei: kein ganztägiger Termin. Gebucht: mindestens ein ganztägiger Termin. Nur ganztägige Termine zählen; Termine mit Uhrzeit werden ignoriert.'})}</div>`+(d.template_id?notice(this.dayManager?'Änderungen gelten auf allen Karten mit diesem Tagestyp. Persönliche Weckzeiten, Aktivierungen und Musik bleiben erhalten.':'Name, Symbol, Wochentage und Kalenderregeln werden gemeinsam verwendet. Änderungen gelten auch auf anderen Karten mit diesem Tagestyp. Musik und Ausschaltbestätigung gelten nur für diese Karte.'):'');
     this._dayDialog.showModal();
   }
   _saveDay(){
     const day=this._dayEdit;if(!day)return;
     day.name=this.shadowRoot.getElementById('day-name').value.trim();
     if(!day.name||day.name.length>60||!day.weekdays.length){this.shadowRoot.getElementById('setup-day-error').innerHTML=notice('Bitte einen Namen und mindestens einen Wochentag wählen.',{error:true});return;}
-    const index=this._config.days.findIndex(d=>d.id===day.id);
+    const duplicate=this._config.days.find(d=>d.id!==day.id&&dayName(d)===dayName(day));
+    if(duplicate){this.shadowRoot.getElementById('setup-day-error').innerHTML=notice('Dieser Tagestyp ist bereits vorhanden. Bitte den vorhandenen Typ bearbeiten.',{error:true});return;}
+    const match=this._config.days.find(d=>d.id===day.id)||(day.template_id?existingDay(this._config.days,day):null);
+    const index=match?this._config.days.indexOf(match):-1;if(match)day.id=match.id;
     if(index<0)this._config.days.push(copy(day));else this._config.days[index]=copy(day);
     this._dayDialog.close();if(!this._managingDays)this._emit();this._render();
   }
@@ -965,6 +987,7 @@ class MusicManagerAlarmCardEditor extends HTMLElement {
   _description(kind,item){
     if(kind==='covers')return `Zielposition: ${item.position} % offen`;
     if(kind==='lights'){
+      if(this._sceneCovers(item.entity_id))return 'Hue-Szene: '+this._label('hue_scenes',this._config.hue_scene);
       const modes=this._catalog.lights.find(i=>i.id===item.entity_id)?.attributes?.supported_color_modes||[];
       return modes.length&&modes.every(m=>['onoff','unknown'].includes(m))?'Einschalten':`${item.brightness} % Helligkeit · ${item.color_mode==='temperature'?`${item.kelvin} K`:item.color_mode==='colour'?'gewählte Farbe':'vorhandene Lichtfarbe'}`;
     }
@@ -973,7 +996,7 @@ class MusicManagerAlarmCardEditor extends HTMLElement {
   _selected(kind,readOnly=false){
     return `<div class="setup-list">${this._config[kind].map((item,index)=>{
       const id=kind==='speakers'?item:item.entity_id;
-      const controls=readOnly?'':(kind!=='speakers'?iconButton({icon:'edit',label:`${this._label(kind,id)} einstellen`,action:'device-open',data:{kind,index}}):'')+iconButton({icon:'trash',label:`${this._label(kind,id)} entfernen`,action:'device-remove',data:{kind,index}});
+      const controls=readOnly?'':(kind!=='speakers'&&!(kind==='lights'&&this._sceneCovers(id))?iconButton({icon:'edit',label:`${this._label(kind,id)} einstellen`,action:'device-open',data:{kind,index}}):'')+iconButton({icon:'trash',label:`${this._label(kind,id)} entfernen`,action:'device-remove',data:{kind,index}});
       return row({title:this._label(kind,id),description:this._description(kind,item),trailing:controls});
     }).join('')}</div>`;
   }
@@ -1000,6 +1023,7 @@ class MusicManagerAlarmCardEditor extends HTMLElement {
     if(kind==='speakers')c.speakers=[...values];
     else c[kind]=values.map(entity_id=>c[kind].find(i=>i.entity_id===entity_id)||(kind==='covers'?{entity_id,position:100}:{entity_id,brightness:100,color_mode:'keep'}));
     if(!this._canDim())c.sunrise_minutes=0;
+    if(kind==='lights')this._pruneScene();
     this._pickerDialog.close();this._emit();this._render();
   }
   _openDevice(kind,index){
@@ -1027,6 +1051,7 @@ class MusicManagerAlarmCardEditor extends HTMLElement {
     if(this._locked&&!this._managingDays&&!this._editingCard)return;
     if(id.startsWith('day-')&&this._dayEdit){const keys={'day-name':'name','day-icon':'icon','day-music':'music_mode','day-calendar':'calendar_entity','day-calendar-mode':'calendar_mode'};if(id==='day-confirm')this._dayEdit.confirm_disable=value==='confirm';else if(keys[id])this._dayEdit[keys[id]]=value;if(id==='day-icon')this.shadowRoot.getElementById('day-icon-preview').setAttribute('icon',value);if(id==='day-calendar'){this.shadowRoot.getElementById('day-calendar-condition').hidden=!value;this.shadowRoot.getElementById('day-calendar-mode').disabled=!value;}return;}
     if(id==='wake-name'){c.name=value;this._emit();}
+    else if(id==='wake-hue-scene'){c.hue_scene=value;this._emit();this._render();}
     else if(id==='wake-owner'){
       c.owner_id=value;this._error='';this._hint='';this._emit();this._loadedKey=null;this._load(true);
     }else if(id==='wake-calendar'){c.calendar_entity=value;this._emit();this._render();}
@@ -1056,7 +1081,7 @@ class MusicManagerAlarmCardEditor extends HTMLElement {
     if(action==='manage-days-cancel'){this._config.days=copy(this._record.days||defaultDays(this._config.calendar_entity));this._managingDays=false;this._error='';this._render();return;}
     if(action==='manage-days-save'){this._saveManagedDays();return;}
     if(this._locked&&!this._managingDays&&!this._editingCard)return;
-    if(action==='day-use'){const shared=this._catalog.shared_days.find(d=>d.id===this._sharedChoice);if(shared&&!this._config.days.some(d=>d.template_id===shared.id)){this._sharedChoice='';this._openDay(undefined,shared);}return;}
+    if(action==='day-use'){const shared=this._catalog.shared_days.find(d=>d.id===this._sharedChoice);if(shared){this._sharedChoice='';this._openDay(undefined,shared);}return;}
     if(action==='day-add'){this._openDay();return;}
     if(action==='day-edit'){this._openDay(data.kind);return;}
     if(action==='day-remove'){this._removeDay(data.kind);return;}
@@ -1078,7 +1103,7 @@ class MusicManagerAlarmCardEditor extends HTMLElement {
     if(action==='device-save'&&this._edit){const {kind,index,value}=this._edit;this._config[kind][index]=copy(value);this._deviceDialog.close();this._emit();this._render();return;}
     if(action==='device-remove'){
       if(!['speakers','covers','lights'].includes(data.kind))return;
-      this._config[data.kind].splice(Number(data.index),1);if(!this._canDim())this._config.sunrise_minutes=0;this._emit();this._render();return;
+      this._config[data.kind].splice(Number(data.index),1);if(!this._canDim())this._config.sunrise_minutes=0;if(data.kind==='lights')this._pruneScene();this._emit();this._render();return;
     }
     if(this._edit&&action.startsWith('device-')){
       const key={position:'position',brightness:'brightness',kelvin:'kelvin',rgb:'rgb'}[action.slice(7)];
@@ -1087,8 +1112,85 @@ class MusicManagerAlarmCardEditor extends HTMLElement {
   }
 }
 
-for(const [name,element] of [['wecker-manager-time-wheel',MusicManagerTimeWheel],['wecker-manager-card',MusicManagerAlarmCard],['wecker-manager-card-editor',MusicManagerAlarmCardEditor]])if(!customElements.get(name))customElements.define(name,element);
+class WeckerManagerDayManager extends MusicManagerAlarmCardEditor {
+  constructor(){super();this.dayManager=true;this.setConfig(emptyConfig());}
+  _ensure(){
+    super._ensure();if(this._templateConfirm)return;
+    const template=document.createElement('template');template.innerHTML=confirmDialog({id:'template-delete-confirm',title:'Gemeinsamen Tagestyp löschen?',message:'Der unbenutzte Tagestyp wird aus der gemeinsamen Auswahl entfernt.',confirmLabel:'Löschen',confirmAction:'template-confirm-delete'});this.shadowRoot.append(template.content.cloneNode(true));
+    this._templateConfirm=this.shadowRoot.getElementById('template-delete-confirm');
+  }
+  async _load(force=false){
+    if(!this.isConnected||!this._hass?.user?.id||this._loading||this._creating||this._loadedKey&&!force)return;
+    if(!this._hass.user.is_admin){this._catalog=null;this._error='Die Tagestypen-Verwaltung steht nur Administratoren zur Verfügung.';this._render();return;}
+    const epoch=this._epoch;this._loading=true;this._render();
+    try{
+      const response=await this._hass.callWS({type:'wecker_manager/card',action:'catalog'});if(epoch!==this._epoch)return;
+      this._catalog={shared_days:list(response.shared_days),calendars:list(response.calendars)};
+      this._config.days=this._catalog.shared_days.map(day=>({...copy(day),template_id:day.id,template_revision:day.revision,music_mode:'switchable',confirm_disable:false}));
+      this._loadedKey='templates';this._error='';
+    }catch(error){if(epoch===this._epoch)this._error=message(error);}
+    finally{if(epoch===this._epoch){this._loading=false;this._render();if(this._again){this._again=false;queueMicrotask(()=>this._load(true));}}}
+  }
+  _render(){
+    if(!this._body)return;const busy=this._creating||this._loading;
+    this._body.innerHTML=notice('Tagestypen stehen allen Weckerkarten zur Verfügung. Name, Symbol, Wochentage und Kalenderregeln werden gemeinsam gepflegt. Weckzeiten, Aktivierung und Musik bleiben je Karte getrennt.')+
+      (this._error?notice(this._error,{error:true})+button({label:'Erneut laden',action:'editor-reload',disabled:busy}):'')+
+      (this._loading?loadingState('Tagestypen werden geladen …'):'')+
+      (this._catalog?`<div class="setup-list">${this._catalog.shared_days.map(day=>`<div class="setup-day-row"><ha-icon icon="${escapeHtml(day.icon)}" aria-hidden="true"></ha-icon>${row({title:day.name,description:weekdayText(day.weekdays)+(day.calendar_entity?' · '+this._label('calendars',day.calendar_entity)+' · '+calendarText(day):' · ohne Kalender')+' · '+(day.uses?'Auf '+day.uses+' Karte'+(day.uses===1?'':'n')+' verwendet':'Noch nicht verwendet'),trailing:iconButton({icon:'edit',label:day.name+' bearbeiten',action:'day-edit',data:{kind:day.id},disabled:busy})+iconButton({icon:'trash',label:day.name+' löschen',action:'template-delete',data:{kind:day.id},disabled:busy||day.uses>0})})}</div>`).join('')||notice('Noch keine gemeinsamen Tagestypen angelegt.')}</div>`+button({label:'Tagestyp anlegen',icon:'add',action:'day-add',disabled:busy})+notice('Verwendete Tagestypen zuerst aus den Weckerkarten entfernen. Anschließend können sie hier gelöscht werden.'):'');
+  }
+  _dialogBusy(busy){for(const modal of [this._dayDialog,this._templateConfirm])for(const control of modal.querySelectorAll('button,input,select'))control.disabled=busy;}
+  async _saveDay(){
+    const day=this._dayEdit;if(!day||this._creating)return;day.name=this.shadowRoot.getElementById('day-name').value.trim();
+    if(!day.name||day.name.length>60||!day.weekdays.length){this.shadowRoot.getElementById('setup-day-error').innerHTML=notice('Bitte einen Namen und mindestens einen Wochentag wählen.',{error:true});return;}
+    const epoch=this._epoch,raw=Object.fromEntries(['id','name','icon','weekdays','calendar_entity','calendar_mode'].map(key=>[key,copy(day[key])]));
+    this._creating=true;this._dialogBusy(true);this._render();
+    try{
+      await this._hass.callWS({type:'wecker_manager/card',action:'save_day_template',day_template:raw,revision:day.template_revision||0});if(epoch!==this._epoch)return;
+      this._dayDialog.close();this._again=false;this._loadedKey=null;
+    }catch(error){if(epoch===this._epoch)this.shadowRoot.getElementById('setup-day-error').innerHTML=notice(message(error),{error:true});}
+    finally{if(epoch===this._epoch){this._creating=false;this._dialogBusy(false);this._render();if(!this._dayDialog.open)this._load(true);}}
+  }
+  async _deleteTemplate(){
+    const day=this._deleteTarget;if(!day||this._creating)return;const epoch=this._epoch;this._creating=true;this._dialogBusy(true);this._render();
+    try{await this._hass.callWS({type:'wecker_manager/card',action:'delete_day_template',template_id:day.id,revision:day.revision});if(epoch!==this._epoch)return;this._again=false;this._loadedKey=null;}
+    catch(error){if(epoch===this._epoch)this._error=message(error);}
+    finally{if(epoch===this._epoch){this._creating=false;this._dialogBusy(false);this._templateConfirm.close();this._deleteTarget=null;this._render();if(!this._loadedKey)this._load(true);}}
+  }
+  _action(event){
+    if(this._creating||this._loading)return;
+    if(event.action==='template-delete'){const day=this._catalog?.shared_days.find(day=>day.id===event.data.kind);if(day&&!day.uses){this._deleteTarget=copy(day);this._templateConfirm.querySelector('.modal-body p').textContent='„'+day.name+'“ aus der gemeinsamen Auswahl löschen?';this._templateConfirm.showModal();}return;}
+    if(event.action==='template-confirm-delete'){this._deleteTemplate();return;}
+    super._action(event);
+  }
+}
+
+class WeckerManagerStatusEditor extends HTMLElement {
+  constructor(){super();this.attachShadow({mode:'open'});this.shadowRoot.addEventListener('change',event=>{if(!this._config)return;const key=event.target.dataset.config;if(!key)return;this._config[key]=event.target.value.trim();this.dispatchEvent(new CustomEvent('config-changed',{detail:{config:copy(this._config)},bubbles:true,composed:true}));});}
+  setConfig(config){this._config={...config};this.shadowRoot.innerHTML=`<style>${UI_CSS}.status-fields{display:grid;gap:16px}</style>${notice('Alarm-ID und Karten-ID aus der YAML-Konfiguration der zugehörigen Weckerkarte kopieren. Diese Übersicht zeigt deren aktuellen Zustand und ändert keine Einstellungen.')}<div class="status-fields">${['name','alarm_id','card_id'].map((key,index)=>field({id:'status-'+key,label:['Überschrift','Alarm-ID','Karten-ID'][index],value:config[key]||'',required:index>0}).replace('<input ',`<input data-config="${key}" `)).join('')}</div>`;}
+  set hass(value){this._hass=value;}
+}
+
+class WeckerManagerStatusCard extends MusicManagerAlarmCard {
+  static getConfigElement(){return document.createElement('wecker-manager-status-editor');}
+  static getStubConfig(){return {type:'custom:wecker-manager-status-card',name:'Wecker',alarm_id:'',card_id:''};}
+  getCardSize(){return Math.ceil((48+(this._data?.days?.length||3)*40)/50);}
+  _ensure(){
+    if(!this._config||this._body)return;
+    this.shadowRoot.innerHTML=`<style>${UI_CSS}.status-title{padding:16px 16px 8px}.status-content{padding:0 16px 12px}.status-line{display:flex;align-items:center;gap:8px;min-height:var(--fui-touch)}.wake-symbol{display:grid;place-items:center;color:var(--secondary-text-color,#727272)}.wake-symbol.active{color:var(--primary-color,#03a9f4)}.wake-symbol ha-icon{display:block;width:var(--fui-icon);height:var(--fui-icon);--mdc-icon-size:var(--fui-icon)}.status-dot{display:inline-block;flex:0 0 12px;width:12px;height:12px;border-radius:50%;background:var(--secondary-text-color,#727272)}.status-dot.on{background:var(--primary-color,#03a9f4)}</style><ha-card><h3 class="status-title" id="status-title"></h3><div class="status-content"><div id="status-error" aria-live="polite"></div><div id="status-types"></div></div></ha-card>`;
+    this._body=this.shadowRoot.getElementById('status-types');this._render();
+  }
+  _accept(data){if(data.exists)this._config={...this._config,...copy(data.binding)};this._data=data;this._dayKey=null;this._loadDay();}
+  _render(){
+    if(!this._body)return;this.shadowRoot.getElementById('status-title').textContent=this._config.name||this._data?.name||'Wecker';
+    this.shadowRoot.getElementById('status-error').innerHTML=this._error?notice(this._error,{error:true})+button({label:'Erneut laden',action:'reload'}):this._loading&&!this._data?.exists?loadingState('Wird geladen …'):!this._data?.exists&&this._data?notice('Die zugehörige Weckerkarte wurde nicht gefunden. Bitte Alarm-ID und Karten-ID prüfen.'):'';
+    this._body.innerHTML=this._data?.exists?this._days().map(day=>{const on=this._data.settings.types[day.id]?.enabled;return `<div class="status-line" aria-label="${escapeHtml(day.name+' · '+(on?'An':'Aus'))}"><span class="wake-symbol" data-wake-kind="${escapeHtml(day.id)}" role="img"><ha-icon icon="${escapeHtml(day.icon)}"></ha-icon></span><span class="status-dot${on?' on':''}" aria-hidden="true"></span><span>${on?'An':'Aus'}</span></div>`;}).join(''):'';this._renderDay();
+  }
+  _action({action}){if(action==='reload')this._load(true);}
+}
+
+for(const [name,element] of [['wecker-manager-time-wheel',MusicManagerTimeWheel],['wecker-manager-card',MusicManagerAlarmCard],['wecker-manager-card-editor',MusicManagerAlarmCardEditor],['wecker-manager-day-manager',WeckerManagerDayManager],['wecker-manager-status-card',WeckerManagerStatusCard],['wecker-manager-status-editor',WeckerManagerStatusEditor]])if(!customElements.get(name))customElements.define(name,element);
 window.customCards=window.customCards||[];
 if(!window.customCards.some(card=>card.type==='wecker-manager-card'))window.customCards.push({type:'wecker-manager-card',name:'Wecker',description:'Gemeinsame Tagestypen, 24-Stunden-Status und vollständig bearbeitbare Weckerkarten.',preview:true});
+if(!window.customCards.some(card=>card.type==='wecker-manager-status-card'))window.customCards.push({type:'wecker-manager-status-card',name:'Wecker-Status',description:'Kompakte Statusübersicht eines vorhandenen Weckers mit Symbol und An/Aus je Tagestyp.',preview:false});
 
 })();
