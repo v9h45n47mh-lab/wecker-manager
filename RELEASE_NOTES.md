@@ -1,3 +1,13 @@
+# Wecker 1.8.0
+
+- **Ungenutzte Tagestypen wieder löschbar:** Nach **Aktualisieren** zählen aktuelle Dashboard- und Statuskarten. Alte Weckereinträge ohne Karte blockieren das Löschen nicht mehr. Die Löschbestätigung zeigt genau die Wecker, die zusammen mit dem ungenutzten Typ entfernt werden. Auch ihre passenden Music-Manager-Weckerzuordnungen werden bereinigt; andere Tagestypen bleiben erhalten.
+- **Speicherablauf korrigiert:** Der Home-Assistant-Karteneditor prüft die Einrichtung als Entwurf. Ein ausführbarer Wecker und seine Musikzuordnung werden erst nach **Speichern** der Dashboardkarte angelegt. Abbrechen legt keinen Wecker an und verändert keinen bestehenden Wecker. Die Übernahme funktioniert ohne geöffneten Browser und über einen Home-Assistant-Neustart hinweg.
+- **Name des Weckers** steht am Anfang der Einrichtung statt unter Musik. Die abschließende Aktion heißt **Einrichtung übernehmen** und verweist auf das Speichern der Dashboardkarte. Die vollständige Bearbeitung innerhalb einer bestehenden Karte speichert wie bisher direkt.
+- Vor dem Bereinigen werden Kartenverwendung und bestätigte Wecker erneut geprüft. Statuskarten, neue Referenzen, nicht lesbare Dashboards und laufende Musikstopps bleiben geschützt. Veraltete oder nachträglich veränderte Entwürfe überschreiben keine aktuellen Wecker.
+- Persönliche Zeiten, Aktivierungen, Weckdauer, Gerätebindungen, Berechtigungen und Hue-Einstellungen bleiben bei bestehenden Karten erhalten. HA UI Kit 1.4.1 bleibt unverändert.
+
+**Update:** Wecker in HACS aktualisieren, Home Assistant neu starten und den Browser mit Strg+F5 neu laden. Danach unter **Zahnrad → Tagestypen verwalten → Aktualisieren** den ungenutzten Typ löschen und die angezeigte Bereinigung bestätigen. Music Manager 2.2.1 bleibt verwendbar.
+
 # Wecker 1.7.1
 
 - **Weckdauer in den Wecker-Einstellungen:** Unter Zahnrad → Weckmusik feste Minuten oder **Wenn Titel endet** wählen. Die Dauer steht nicht mehr in der Musikauswahl. Dauer, Lautstärke und weitere Einstellungen werden zusammen gespeichert; Abbrechen und fehlgeschlagene Speichervorgänge erhalten den bisherigen Stand. Bereits eingestellte Dauern bleiben erhalten.

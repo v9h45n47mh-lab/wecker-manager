@@ -1,4 +1,4 @@
-# Weckerkarte 1.7.1
+# Weckerkarte 1.8.0
 
 Die Integration führt Wecker zentral in Home Assistant aus. Dashboardkarten zeigen und ändern die zentral gespeicherten Daten. Der separat installierte Music Manager liefert die persönliche Musikauswahl.
 
@@ -6,13 +6,13 @@ Die Integration führt Wecker zentral in Home Assistant aus. Dashboardkarten zei
 
 Im Karteneditor beziehungsweise als Administrator unter **Zahnrad → Gesamte Karte bearbeiten** stehen dieselben fünf Schritte zur Verfügung:
 
-1. **Tagestypen:** Einen gemeinsamen Tagestyp übernehmen oder einen neuen Namen und Anzeigenamen, ein Symbol und die gültigen Wochentage festlegen. Optional Kalender und freie/gebuchte Tage wählen. Musikverhalten und Ausschaltbestätigung gelten je Karte.
-2. **Musik:** Weckername, persönliches Musikkonto und eine oder mehrere freigegebene Sonos-Boxen wählen.
+1. **Tagestypen:** Zuerst den Namen des gesamten Weckers festlegen. Einen gemeinsamen Tagestyp übernehmen oder einen neuen Namen und Anzeigenamen, ein Symbol und die gültigen Wochentage festlegen. Optional Kalender und freie/gebuchte Tage wählen. Musikverhalten und Ausschaltbestätigung gelten je Karte.
+2. **Musik:** Persönliches Musikkonto und eine oder mehrere freigegebene Sonos-Boxen wählen.
 3. **Rollläden:** Optional Geräte und deren Zielpositionen wählen.
 4. **Licht:** Optional Geräte wählen und einzeln einstellen oder eine passende Hue-Szene auswählen.
-5. **Prüfen:** Mit **Wecker anlegen** beziehungsweise **Änderungen speichern** abschließen.
+5. **Prüfen:** Im Home-Assistant-Karteneditor **Einrichtung übernehmen** wählen und danach die Dashboardkarte mit **Speichern** sichern. Unter **Gesamte Karte bearbeiten** übernimmt **Änderungen speichern** die Änderungen an der bereits vorhandenen Karte direkt.
 
-Bis zum abschließenden Speichern sind es Entwürfe. Abbrechen übernimmt keine neuen Bindungen. Fehler erhalten den Entwurf. Ein veralteter Entwurf überschreibt keine neuere Konfiguration. Eine vorhandene Karte behält ihre Kennung und Weckzeiten. Konto- oder Geräteänderungen werden auf allen Kopien derselben Karte sichtbar. Nur Administratoren dürfen die gesamte Karte bearbeiten; das Bedienen bleibt beim Eigentümer und bei Administratoren.
+Bis zum Speichern der Dashboardkarte sind es geprüfte Entwürfe, keine ausführbaren Wecker. Sie legen keine Music-Manager-Weckerzuordnung und keine verwendeten gemeinsamen Tagestypen an. Das Backend übernimmt die geprüfte Konfiguration beim Speichern des Dashboards; dafür muss der Browser anschließend nicht geöffnet bleiben. Entwürfe laufen nach 24 Stunden ab und können erneut geprüft werden. Abbrechen übernimmt keine neuen Bindungen. Fehler erhalten den Entwurf. Ein veralteter Entwurf überschreibt keine neuere Konfiguration. Eine vorhandene Karte behält ihre Kennung und Weckzeiten. Konto- oder Geräteänderungen werden auf allen Kopien derselben Karte sichtbar. Nur Administratoren dürfen die gesamte Karte bearbeiten; das Bedienen bleibt beim Eigentümer und bei Administratoren.
 
 ## Gemeinsame Tage
 
@@ -84,6 +84,8 @@ Zeitpläne bleiben erhalten, wenn eine Dashboardkarte entfernt wird. Zum dauerha
 
 Unter **Zahnrad → Tagestypen verwalten → Aktualisieren** werden die gespeicherten Dashboardkonfigurationen erneut gelesen. Auch Karten in Abschnitten, Stapeln, bedingten Karten und Unteransichten sowie Statuskarten zählen. Jede gespeicherte Weckerkennung wird pro Tagestyp nur einmal gezählt, unabhängig von der Zahl ihrer Dashboardkopien. Entscheidend sind aktuelle Alarm- und Kartenkennung, nicht frühere Namen oder Aufrufe.
 
-Ein gespeicherter Wecker ohne passende Dashboardkarte wird gesondert als **weiterhin gespeichert** aufgeführt. Das Entfernen seiner Dashboardkarte löscht dessen Programm nicht: Es kann weiter schalten und verwendet seinen Tagestyp weiterhin. Aktualisieren verändert keine Programme oder Aktivierungen. Deshalb bleibt ein solcher Typ vor dem Löschen geschützt. Bei nicht lesbaren Dashboards bleibt der letzte erfolgreich geprüfte Nachweis erhalten und ein Fehler wird angezeigt.
+Ein gespeicherter Wecker ohne passende Dashboardkarte wird gesondert als **weiterhin gespeichert** aufgeführt. Für einen Typ ohne aktuelle Dashboard- oder Statuskarte ist **Löschen** auch bei solchen alten Einträgen verfügbar. Die Bestätigung nennt die gespeicherten Wecker, die zusammen mit dem Typ entfernt werden. Dabei werden deren Programme und passende Music-Manager-Weckerzuordnungen entfernt; andere gemeinsame Tagestypen bleiben im Katalog. Danach können auch diese ungenutzten Typen gelöscht werden.
+
+Der Server prüft vor dem Löschen erneut alle Dashboardkarten und die bestätigten Weckerkennungen. Eine neu hinzugekommene Karte oder ein nicht lesbares Dashboard verhindert die Bereinigung. Aktuell laufende Weckaktionen und ausstehende Musikstopps müssen vor dem Bereinigen abgeschlossen sein. Die Prüfung selbst entfernt keine alten Programme automatisch.
 
 Unter allen Tagestypen der Weckerkarte steht die Legende: **Blau hinterlegt: aktiv in den nächsten 24 Stunden.**

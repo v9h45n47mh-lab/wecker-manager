@@ -295,6 +295,9 @@ def validate_settings(raw, days=None):
 
 async def catalog(hass, caller, owner_id=None, *, refresh_usage=False):
     require_admin(caller)
+    if refresh_usage:
+        from .card_setups import synchronize_saved_setups
+        await synchronize_saved_setups(hass, force=True)
     entry = entry_for(hass)
     accounts = []
     for account in music_entry_for(hass).options.get(CONF_ACCOUNTS, []):
@@ -341,7 +344,7 @@ async def catalog(hass, caller, owner_id=None, *, refresh_usage=False):
             item["used_by"], item["unassigned"] = [], []
             for record in uses:
                 binding = record["binding"]
-                use = {"name": record.get("name", "Wecker"), "owner": owner_names.get(binding["owner_id"], "")}
+                use = {"name": record.get("name", "Wecker"), "owner": owner_names.get(binding["owner_id"], ""), "alarm_id": binding["alarm_id"], "card_id": binding["card_id"]}
                 dashboards = references.get((binding["alarm_id"], binding["card_id"]))
                 if dashboards:
                     item["used_by"].append({**use, "dashboards": sorted(dashboards)})
@@ -425,7 +428,7 @@ async def save_day_template(hass, caller, raw, revision):
         return {"saved": True, "template": deepcopy(result)}
 
 
-async def delete_day_template(hass, caller, template_id, revision):
+async def delete_day_template(hass, caller, template_id, revision, remove_cards=None):
     require_admin(caller)
     identifier(template_id)
     entry = entry_for(hass)
@@ -434,14 +437,35 @@ async def delete_day_template(hass, caller, template_id, revision):
         item = templates.get(template_id)
         if not item or type(revision) is not int or item["revision"] != revision:
             raise AccessError("conflict", "Der Tagestyp wurde zwischenzeitlich geändert. Bitte erneut laden.")
-        if any(any(day.get("template_id") == template_id for day in day_definitions(record)) for record in cards.values()):
-            raise AccessError("template_in_use", "Dieser Tagestyp wird noch verwendet. Entferne ihn zuerst aus den betreffenden Weckerkarten.")
+        linked = {key: record for key, record in cards.items() if any(day.get("template_id") == template_id for day in day_definitions(record))}
+        if linked:
+            from .dashboard_usage import current_references
+            references = await current_references(hass)
+            if any((key, record["binding"]["card_id"]) in references for key, record in linked.items()):
+                raise AccessError("template_in_use", "Dieser Tagestyp wird noch auf einer Dashboard- oder Statuskarte verwendet. Bitte zuerst dort entfernen.")
+            expected = [{"alarm_id": key, "card_id": record["binding"]["card_id"]} for key, record in linked.items()]
+            if not isinstance(remove_cards, list) or sorted(remove_cards, key=str) != sorted(expected, key=str):
+                raise AccessError("cleanup_confirmation_required", "Bitte die Verwendung aktualisieren und das Entfernen der aufgeführten Wecker ohne Dashboardkarte bestätigen.")
+            if any(record.get("stops") or record["binding"]["card_id"] in runtime(hass)["busy"] for record in linked.values()):
+                raise AccessError("wake_in_progress", "Ein betroffener Wecker läuft noch. Bitte nach dem Ende der Weckmusik erneut löschen.")
+        for key, record in linked.items():
+            del cards[key]
+            if cancel := runtime(hass).setdefault("stop_timers", {}).pop(key, None):
+                cancel()
+            runtime(hass)["errors"].pop(record["binding"]["card_id"], None)
+        if linked:
+            music_entry = music_entry_for(hass)
+            def removed_binding(alarm):
+                record = linked.get(alarm.get("alarm_id"))
+                return record and alarm.get("ha_user_id") == record["binding"]["owner_id"] and alarm.get("source_entity") == record["binding"]["speakers"][0]
+            alarms = [alarm for alarm in music_entry.options.get(CONF_ALARMS, []) if not removed_binding(alarm)]
+            hass.config_entries.async_update_entry(music_entry, options={**music_entry.options, CONF_ALARMS: alarms})
         del templates[template_id]
-        commit_shared(hass, entry, templates, cards, migrated)
-        return {"deleted": True}
+        commit_shared(hass, entry, templates, cards, set(migrated) | set(linked))
+        return {"deleted": True, "removed_cards": len(linked)}
 
 
-async def create_card(hass, caller, config, *, reconfigure=False, revision=None, confirm_disable=None):
+async def create_card(hass, caller, config, *, reconfigure=False, revision=None, confirm_disable=None, validate_only=False, setup_id=None):
     require_admin(caller)
     if not isinstance(config, dict) or set(config) - {"card_id", "alarm_id", "owner_id", "speakers", "covers", "lights", "calendar_entity", "sunrise_minutes", "replace_automation", "days", "name", "hue_scene"}:
         raise AccessError("invalid_config", "Die Kartenkonfiguration ist ungültig.")
@@ -546,6 +570,10 @@ async def create_card(hass, caller, config, *, reconfigure=False, revision=None,
         alarms = [a for a in music_entry.options.get(CONF_ALARMS, []) if a.get("alarm_id") != alarm_id]
         alarms.append({"alarm_id": alarm_id, "ha_user_id": owner.id, "source_entity": speakers[0]})
         templates, cards, changed = await stage_shared(hass, caller, entry, alarm_id, record, days)
+        if validate_only:
+            return snapshot(hass, cards[alarm_id])
+        if setup_id:
+            cards[alarm_id]["setup_id"] = setup_id
         hass.config_entries.async_update_entry(music_entry, options={**music_entry.options, CONF_ALARMS: alarms})
         commit_shared(hass, entry, templates, cards, changed)
         return snapshot(hass, cards[alarm_id])
@@ -757,7 +785,7 @@ async def upcoming_info(hass, caller, alarm_id, card_id):
 
 @websocket_api.websocket_command({
     vol.Required("type"): "wecker_manager/card",
-    vol.Required("action"): vol.In(["catalog", "get", "create", "configure", "update", "set_enabled", "set_playback", "day_info", "upcoming", "configure_days", "save_day_template", "delete_day_template"]),
+    vol.Required("action"): vol.In(["catalog", "get", "prepare_setup", "setup_status", "create", "configure", "update", "set_enabled", "set_playback", "day_info", "upcoming", "configure_days", "save_day_template", "delete_day_template"]),
     vol.Optional("alarm_id"): str,
     vol.Optional("card_id"): str,
     vol.Optional("owner_id"): str,
@@ -773,6 +801,8 @@ async def upcoming_info(hass, caller, alarm_id, card_id):
     vol.Optional("template_id"): str,
     vol.Optional("playback"): dict,
     vol.Optional("refresh_usage"): bool,
+    vol.Optional("setup_id"): str,
+    vol.Optional("remove_cards"): list,
 })
 @websocket_api.async_response
 async def websocket_wake_card(hass, connection, msg):
@@ -781,12 +811,18 @@ async def websocket_wake_card(hass, connection, msg):
             action = msg["action"]
             if action == "catalog":
                 result = await catalog(hass, connection.user, msg.get("owner_id"), refresh_usage=msg.get("refresh_usage", False))
+            elif action == "prepare_setup":
+                from .card_setups import prepare_setup
+                result = await prepare_setup(hass, connection.user, msg.get("config"), msg.get("revision"), msg.get("confirm_disable"))
+            elif action == "setup_status":
+                from .card_setups import setup_status
+                result = setup_status(hass, connection.user, msg.get("setup_id"))
             elif action == "set_playback":
                 result = await set_playback(hass, connection.user, msg.get("alarm_id"), msg.get("card_id"), msg.get("playback"))
             elif action == "save_day_template":
                 result = await save_day_template(hass, connection.user, msg.get("day_template"), msg.get("revision"))
             elif action == "delete_day_template":
-                result = await delete_day_template(hass, connection.user, msg.get("template_id"), msg.get("revision"))
+                result = await delete_day_template(hass, connection.user, msg.get("template_id"), msg.get("revision"), msg.get("remove_cards"))
             elif action == "day_info":
                 result = await tomorrow_info(hass, connection.user, msg.get("alarm_id"), msg.get("card_id"), msg.get("day_offset", 1))
             elif action == "upcoming":
@@ -808,8 +844,13 @@ async def websocket_wake_card(hass, connection, msg):
                 if record and card_id in record.get("retired_card_ids", []):
                     raise AccessError("card_replaced", "Diese Karte wurde ersetzt. Bitte eine neue Weckerkarte anlegen.")
                 if not record or record["binding"]["card_id"] != card_id:
-                    require_admin(connection.user)
-                    result = {"exists": False, "can_create": True, "replaces_card": bool(record)}
+                    from .card_setups import drafts
+                    pending = next((item for item in drafts(entry).values() if item["config"]["alarm_id"] == alarm_id and item["config"]["card_id"] == card_id), None)
+                    if pending:
+                        await alarm_owner(hass, {"ha_user_id": pending["config"]["owner_id"]}, connection.user)
+                    else:
+                        require_admin(connection.user)
+                    result = {"exists": False, "can_create": connection.user.is_admin, "pending": bool(pending), "replaces_card": bool(record), "error": runtime(hass)["errors"].get(card_id, "")}
                 else:
                     if not connection.user.is_admin:
                         _, record, _ = await checked_record(hass, connection.user, alarm_id, card_id)
@@ -1048,7 +1089,13 @@ async def stop_due(hass, entry, alarm_id, record, owner):
 
 
 async def tick(hass, when):
+    from .card_setups import KEY as SETUPS, synchronize_saved_setups
     entry = entry_for(hass)
+    if entry.options.get(SETUPS):
+        try:
+            await synchronize_saved_setups(hass)
+        except AccessError:
+            pass
     when = dt_util.as_local(when)
     for alarm_id, original in list(entry.options.get(KEY, {}).items()):
         card_id = original["binding"]["card_id"]
@@ -1101,6 +1148,8 @@ def async_setup_wake_cards(hass):
         async def scheduled_tick(when):
             await tick(hass, when)
         state["unsubscribe"] = async_track_time_change(hass, scheduled_tick, second=0)
+    from .card_setups import attach_dashboard_listener
+    attach_dashboard_listener(hass)
 
 
 def async_unload_wake_cards(hass):
@@ -1109,3 +1158,6 @@ def async_unload_wake_cards(hass):
         cancel()
     if unsubscribe := state.pop("unsubscribe", None):
         unsubscribe()
+    for key in ("dashboard_unsubscribe", "started_unsubscribe"):
+        if unsubscribe := state.pop(key, None):
+            unsubscribe()

@@ -2,13 +2,13 @@
 
 ![Wecker](custom_components/wecker_manager/brand/icon.png)
 
-Home-Assistant-Integration mit vollständig bearbeitbaren Weckerkarten und gemeinsamen Tagestypen. Version **1.7.1**, unverändertes **HA UI Kit 1.4.1**.
+Home-Assistant-Integration mit vollständig bearbeitbaren Weckerkarten und gemeinsamen Tagestypen. Version **1.8.0**, unverändertes **HA UI Kit 1.4.1**.
 
 ## Funktionen
 
 - Eigene Tagestypen mit Namen, Symbolen, Wochentagen und optional einem Kalender. Im Setup festlegen: freie oder gebuchte Kalendertage; nur ganztägige Termine zählen.
 - Einen Tagestyp wie **Schultag** bei Maximilian anlegen und bei Paul aus dem gemeinsamen Katalog verwenden. Namen, Anzeigenamen, Symbole, Wochentage und Kalenderregeln werden gemeinsam gepflegt. Der Name identifiziert den Typ in der Verwaltung, der Anzeigename beschriftet die Karte. Uhrzeiten, Aktivierungen, Musikverhalten und Ausschaltbestätigungen bleiben je Karte getrennt.
-- Zentrale Verwaltung unter **Zahnrad → Tagestypen verwalten**: Mit **Aktualisieren** die aktuellen Dashboardkarten prüfen; gespeicherte Wecker ohne Dashboardkarte werden getrennt angezeigt. Anlegen, gemeinsame Regeln ändern, verwendende Weckerkarten und Benutzer sehen und unbenutzte Typen löschen. Wiederholtes Übernehmen fügt keinen zweiten Wecker hinzu.
+- Zentrale Verwaltung unter **Zahnrad → Tagestypen verwalten**: Mit **Aktualisieren** die aktuellen Dashboardkarten prüfen; gespeicherte Wecker ohne Dashboardkarte werden getrennt angezeigt und können beim Löschen ungenutzter Typen mit aufgeräumt werden. Anlegen, gemeinsame Regeln ändern, verwendende Weckerkarten und Benutzer sehen und unbenutzte Typen löschen. Wiederholtes Übernehmen fügt keinen zweiten Wecker hinzu.
 - Im Setup unter **Licht → betreffende Lampe bearbeiten** deren Hue-Szene wählen. Die gespeicherten Szenenwerte werden nur auf diese Lampe angewendet; weitere Lampen der Szene bleiben unberührt.
 - Zusätzliche kompakte **Wecker-Status**-Karte: Name, Tagessymbole, An/Aus und die eingestellte Weckzeit. Zum Beispiel Maximilian und Paul nebeneinander: [Anleitung und YAML](docs/STATUSKARTE.md).
 - Ein-/Ausschalten mit optionaler Bestätigung, Stunden-/Minutenräder und bis zu drei Schnellzeiten je Typ. Änderungen werden zentral gespeichert.
@@ -23,11 +23,13 @@ Home-Assistant-Integration mit vollständig bearbeitbaren Weckerkarten und gemei
 1. [Music Manager](https://github.com/v9h45n47mh-lab/music-manager) ab **2.2.1** mit Music Assistant und persönlicher Apple-Music-Zuordnung einrichten. Gewünschte Boxen für das jeweilige Konto freigeben.
 2. In HACS `https://github.com/v9h45n47mh-lab/wecker-manager` als benutzerdefiniertes Repository vom Typ **Integration** hinzufügen und **Wecker** installieren.
 3. Home Assistant neu starten und **Wecker** unter Geräte & Dienste hinzufügen.
-4. Eine Dashboardkarte **Wecker** hinzufügen. **Tagestypen → Musik → Rollläden → Licht → Prüfen** durchlaufen und anschließend das Dashboard speichern.
+4. Eine Dashboardkarte **Wecker** hinzufügen. **Tagestypen → Musik → Rollläden → Licht → Prüfen** durchlaufen, **Einrichtung übernehmen** wählen und anschließend die Dashboardkarte mit **Speichern** sichern. Erst die gespeicherte Karte legt den ausführbaren Wecker an.
 
 Beim Update in HACS aktualisieren, Home Assistant neu starten und den Browser vollständig neu laden (**Strg+F5**). Vorhandene Karten, Musikauswahl, Zeiten und Sonnenaufgangseinstellungen bleiben erhalten. Gemeinsame Tagestypen werden aus den vorhandenen Definitionen übernommen. Alte Kalenderregeln bleiben bestehen.
 
 Die Dashboard-Ressource wird automatisch registriert. Dieses Paket installiert ausschließlich `custom_components/wecker_manager`; die separat installierte Music-Manager-Integration wird nicht ersetzt.
+
+Entwürfe aus dem Karteneditor legen keine Weckerprogramme oder Musikzuordnungen an und blockieren keine Tagestypen. Beim Abbrechen bleibt der bisherige Wecker erhalten. Bereits vorhandene Einträge ohne Dashboardkarte lassen sich unter **Zahnrad → Tagestypen verwalten → Aktualisieren → betreffenden ungenutzten Typ löschen** nach Anzeige der betroffenen Wecker bereinigen.
 
 ## Umstellung alter YAML-Wecker
 
