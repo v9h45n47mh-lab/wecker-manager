@@ -1,4 +1,4 @@
-# Weckerkarte 1.5.0
+# Weckerkarte 1.6.1
 
 Die Integration führt Wecker zentral in Home Assistant aus. Dashboardkarten zeigen und ändern die zentral gespeicherten Daten. Der separat installierte Music Manager liefert die persönliche Musikauswahl.
 
@@ -59,11 +59,11 @@ Bereits ausgeführte Wecker werden nicht erneut als ausstehend gezählt. Die Vor
 
 Uhrzeit antippen und die Räder verwenden. Eine Schnellzeit übernimmt die Zeit sofort. Aktivierung und schaltbare Musik werden zentral gespeichert. Eine konfigurierte Ausschaltbestätigung wird auch serverseitig geprüft.
 
-Unter dem Zahnrad stehen Lautstärke 5–15 %, bis zu drei Schnellzeiten und Sonnenaufgang je Typ. Der Dialog ist höchstens 480 Pixel breit und passt sich kleineren Bildschirmen an. Direkt im Dialog stehen Wecker-, Integrations- und UI-Kit-Version. Dimmbare Lichter werden beim Sonnenaufgang bis zur Weckzeit zur zugeordneten Zielhelligkeit aufgeblendet.
+Unter dem Zahnrad stehen Lautstärke 5–15 %, bis zu drei Schnellzeiten und Sonnenaufgang je Typ. Der Dialog ist höchstens 480 Pixel breit und passt sich kleineren Bildschirmen an. Unten im Dialog stehen Wecker-, Integrations- und UI-Kit-Version. Dimmbare Lichter werden beim Sonnenaufgang bis zur Weckzeit zur zugeordneten Zielhelligkeit aufgeblendet.
 
 ## Kompakte Statusübersicht
 
-Die zusätzliche Karte **Wecker-Status** zeigt je Typ Symbol und An/Aus. [Anleitung und YAML für zwei Karten nebeneinander](STATUSKARTE.md).
+Die zusätzliche Karte **Wecker-Status** zeigt je Typ Symbol, An/Aus und die eingestellte Weckzeit. [Anleitung und YAML für zwei Karten nebeneinander](STATUSKARTE.md).
 
 ## Betrieb
 
