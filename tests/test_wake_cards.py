@@ -993,3 +993,48 @@ class WakeCardTests(IsolatedAsyncioTestCase):
         before=deepcopy(entry.options)
         with self.assertRaises(self.wake.AccessError) as error:await self.wake.delete_day_template(hass,admin,template['id'],template['revision'],remove)
         self.assertEqual(error.exception.code,'wake_in_progress');self.assertEqual(entry.options,before)
+
+    async def test_alarm_manager_lists_current_usage_and_running_guards_for_admins(self):
+        hass,entry,owner,admin,_,c,_,_=self.fixture();await self.wake.create_card(hass,admin,{**c,'name':'Ungenutzter Wecker'})
+        live={**c,'alarm_id':'live_alarm','card_id':'live_card','name':'Verwendeter Wecker'};await self.wake.create_card(hass,admin,live)
+        self.saved_dashboard(hass,[{'type':'custom:wecker-manager-status-card',**live}])
+        with self.assertRaises(self.wake.AccessError):await self.wake.list_cards(hass,owner)
+        result=await self.wake.list_cards(hass,admin);rows={row['alarm_id']:row for row in result['cards']}
+        self.assertTrue(rows[c['alarm_id']]['can_delete']);self.assertFalse(rows[c['alarm_id']]['dashboards']);self.assertTrue(rows[c['alarm_id']]['days']);self.assertEqual(rows[c['alarm_id']]['owner'],'Maximilian')
+        self.assertFalse(rows['live_alarm']['can_delete']);self.assertEqual(rows['live_alarm']['dashboards'],['Familie']);self.assertIn('usage_checked_at',result)
+        entry.options['wake_cards'][c['alarm_id']]['stops']=[{'at':self.now.isoformat(),'source':'media_player.sonos'}]
+        row=next(row for row in (await self.wake.list_cards(hass,admin))['cards'] if row['alarm_id']==c['alarm_id'])
+        self.assertFalse(row['can_delete']);self.assertIn('Musikstopp',row['blocked_reason'])
+
+    async def test_individual_alarm_delete_keeps_all_day_types_and_other_alarms_and_cleans_its_drafts(self):
+        from custom_components.wecker_manager.card_setups import prepare_setup
+        hass,entry,_,admin,_,c,_,_=self.fixture();await self.wake.create_card(hass,admin,c)
+        live={**c,'alarm_id':'live_alarm','card_id':'live_card','name':'Erhalten'};await self.wake.create_card(hass,admin,live)
+        self.saved_dashboard(hass,[{'type':'custom:wecker-manager-card',**live}])
+        old=deepcopy(entry.options['wake_cards'][c['alarm_id']]);keep=deepcopy(entry.options['wake_cards']['live_alarm']);templates=deepcopy(entry.options['day_templates'])
+        pending=await prepare_setup(hass,admin,{**c,'name':'Offener Entwurf'},old['revision'])
+        other=await prepare_setup(hass,admin,{**c,'alarm_id':'future_alarm','card_id':'future_card'})
+        await self.wake.delete_card(hass,admin,c['alarm_id'],c['card_id'],old['revision'])
+        self.assertNotIn(c['alarm_id'],entry.options['wake_cards']);self.assertEqual(entry.options['wake_cards']['live_alarm'],keep);self.assertEqual(entry.options['day_templates'],templates)
+        self.assertNotIn(pending['setup_id'],entry.options['pending_setups']);self.assertIn(other['setup_id'],entry.options['pending_setups'])
+        self.assertEqual([alarm['alarm_id'] for alarm in hass.data['music_manager']['entry'].options['alarms']],['live_alarm'])
+        self.assertTrue(any(call.args[1].get('day_templates') for call in hass.bus.async_fire.call_args_list))
+
+    async def test_individual_alarm_delete_rejects_stale_ids_current_cards_read_failures_and_running_stops(self):
+        hass,entry,owner,admin,_,c,_,_=self.fixture();data=await self.wake.create_card(hass,admin,c)
+        loader=self.saved_dashboard(hass,[]);before=deepcopy(entry.options)
+        for caller,card_id,revision in [(owner,c['card_id'],data['revision']),(admin,'wrong_card',data['revision']),(admin,c['card_id'],0),(admin,c['card_id'],True)]:
+            with self.assertRaises(self.wake.AccessError):await self.wake.delete_card(hass,caller,c['alarm_id'],card_id,revision)
+            self.assertEqual(entry.options,before)
+        loader.return_value={'views':[{'cards':[{'type':'custom:wecker-manager-status-card',**c}]}]}
+        with self.assertRaises(self.wake.AccessError) as error:await self.wake.delete_card(hass,admin,c['alarm_id'],c['card_id'],data['revision'])
+        self.assertEqual(error.exception.code,'card_in_use');self.assertEqual(entry.options,before)
+        loader.side_effect=RuntimeError('Unavailable')
+        with self.assertRaises(self.wake.AccessError):await self.wake.delete_card(hass,admin,c['alarm_id'],c['card_id'],data['revision'])
+        self.assertEqual(entry.options,before);loader.side_effect=None;loader.return_value={'views':[]}
+        self.wake.runtime(hass)['busy'].add(c['card_id'])
+        with self.assertRaises(self.wake.AccessError):await self.wake.delete_card(hass,admin,c['alarm_id'],c['card_id'],data['revision'])
+        self.assertEqual(entry.options,before);self.wake.runtime(hass)['busy'].clear()
+        entry.options['wake_cards'][c['alarm_id']]['stops']=[{'at':self.now.isoformat(),'source':'media_player.sonos'}];before=deepcopy(entry.options)
+        with self.assertRaises(self.wake.AccessError):await self.wake.delete_card(hass,admin,c['alarm_id'],c['card_id'],data['revision'])
+        self.assertEqual(entry.options,before)

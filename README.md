@@ -2,13 +2,14 @@
 
 ![Wecker](custom_components/wecker_manager/brand/icon.png)
 
-Home-Assistant-Integration mit vollständig bearbeitbaren Weckerkarten und gemeinsamen Tagestypen. Version **1.8.0**, unverändertes **HA UI Kit 1.4.1**.
+Home-Assistant-Integration mit vollständig bearbeitbaren Weckerkarten und gemeinsamen Tagestypen. Version **1.9.0**, unverändertes **HA UI Kit 1.4.1**.
 
 ## Funktionen
 
 - Eigene Tagestypen mit Namen, Symbolen, Wochentagen und optional einem Kalender. Im Setup festlegen: freie oder gebuchte Kalendertage; nur ganztägige Termine zählen.
 - Einen Tagestyp wie **Schultag** bei Maximilian anlegen und bei Paul aus dem gemeinsamen Katalog verwenden. Namen, Anzeigenamen, Symbole, Wochentage und Kalenderregeln werden gemeinsam gepflegt. Der Name identifiziert den Typ in der Verwaltung, der Anzeigename beschriftet die Karte. Uhrzeiten, Aktivierungen, Musikverhalten und Ausschaltbestätigungen bleiben je Karte getrennt.
 - Zentrale Verwaltung unter **Zahnrad → Tagestypen verwalten**: Mit **Aktualisieren** die aktuellen Dashboardkarten prüfen; gespeicherte Wecker ohne Dashboardkarte werden getrennt angezeigt und können beim Löschen ungenutzter Typen mit aufgeräumt werden. Anlegen, gemeinsame Regeln ändern, verwendende Weckerkarten und Benutzer sehen und unbenutzte Typen löschen. Wiederholtes Übernehmen fügt keinen zweiten Wecker hinzu.
+- **Zahnrad → Wecker verwalten:** Ungenutzte Wecker gezielt löschen. Die Übersicht zeigt Benutzer, Weckzeiten, Boxen und die aktuelle Kartenverwendung; gemeinsame Tagestypen bleiben erhalten.
 - Im Setup unter **Licht → betreffende Lampe bearbeiten** deren Hue-Szene wählen. Die gespeicherten Szenenwerte werden nur auf diese Lampe angewendet; weitere Lampen der Szene bleiben unberührt.
 - Zusätzliche kompakte **Wecker-Status**-Karte: Name, Tagessymbole, An/Aus und die eingestellte Weckzeit. Zum Beispiel Maximilian und Paul nebeneinander: [Anleitung und YAML](docs/STATUSKARTE.md).
 - Ein-/Ausschalten mit optionaler Bestätigung, Stunden-/Minutenräder und bis zu drei Schnellzeiten je Typ. Änderungen werden zentral gespeichert.
@@ -29,7 +30,7 @@ Beim Update in HACS aktualisieren, Home Assistant neu starten und den Browser vo
 
 Die Dashboard-Ressource wird automatisch registriert. Dieses Paket installiert ausschließlich `custom_components/wecker_manager`; die separat installierte Music-Manager-Integration wird nicht ersetzt.
 
-Entwürfe aus dem Karteneditor legen keine Weckerprogramme oder Musikzuordnungen an und blockieren keine Tagestypen. Beim Abbrechen bleibt der bisherige Wecker erhalten. Bereits vorhandene Einträge ohne Dashboardkarte lassen sich unter **Zahnrad → Tagestypen verwalten → Aktualisieren → betreffenden ungenutzten Typ löschen** nach Anzeige der betroffenen Wecker bereinigen.
+Entwürfe aus dem Karteneditor legen keine Weckerprogramme oder Musikzuordnungen an und blockieren keine Tagestypen. Beim Abbrechen bleibt der bisherige Wecker erhalten. Bereits vorhandene Einträge ohne Dashboardkarte lassen sich unter **Zahnrad → Wecker verwalten → Ungenutzte** einzeln löschen, ohne gemeinsame Tagestypen zu entfernen.
 
 ## Umstellung alter YAML-Wecker
 
