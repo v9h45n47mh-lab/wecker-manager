@@ -220,6 +220,63 @@ class WakeCardTests(IsolatedAsyncioTestCase):
         self.wake.async_unload_wake_cards(hass)
         self.events.async_track_time_change.return_value.assert_called_once()
 
+    async def test_editable_sunrise_migrates_existing_cards_and_changes_execution_without_rebinding(self):
+        hass,entry,owner,admin,_,config,_,_=self.fixture()
+        config['sunrise_minutes']=5
+        data=await self.activate(hass,admin,config)
+        record=entry.options['wake_cards'][config['alarm_id']]
+        record['settings'].pop('sunrise_minutes')  # Simulate a stored 1.1.x card.
+        self.assertEqual(self.wake.snapshot(hass,record)['settings']['sunrise_minutes'],5)
+        self.assertEqual(self.wake.due_phases(hass,record,self.now-timedelta(minutes=5)),[('schultag','sunrise','2026-11-13')])
+        settings=deepcopy(data['settings']);settings['sunrise_minutes']=15
+        updated=await self.wake.update_card(hass,owner,config['alarm_id'],config['card_id'],settings,data['revision'])
+        record=entry.options['wake_cards'][config['alarm_id']]
+        self.assertEqual(record['binding'],config)
+        self.assertEqual(self.wake.due_phases(hass,record,self.now-timedelta(minutes=15)),[('schultag','sunrise','2026-11-13')])
+        self.assertEqual(self.wake.due_phases(hass,record,self.now-timedelta(minutes=5)),[])
+        with patch.object(self.wake.asyncio,'sleep',new=AsyncMock()):
+            await self.wake.execute(hass,entry,record,owner,'schultag','sunrise')
+        transitions=[a.args[2]['transition'] for a in hass.services.async_call.await_args_list if 'transition' in a.args[2]]
+        self.assertEqual(transitions,[899,899])
+        # An older client editing another setting must retain the chosen sunrise.
+        settings.pop('sunrise_minutes')
+        preserved=await self.wake.update_card(hass,owner,config['alarm_id'],config['card_id'],settings,updated['revision'])
+        self.assertEqual(preserved['settings']['sunrise_minutes'],15)
+        settings['sunrise_minutes']=0
+        await self.wake.update_card(hass,owner,config['alarm_id'],config['card_id'],settings,preserved['revision'])
+        self.assertEqual(self.wake.due_phases(hass,entry.options['wake_cards'][config['alarm_id']],self.now-timedelta(minutes=15)),[])
+
+    async def test_sunrise_requires_a_dimmable_bound_light_and_valid_duration(self):
+        hass,_,owner,admin,_,config,states,_=self.fixture()
+        config['lights']=[]
+        data=await self.wake.create_card(hass,admin,config)
+        self.assertFalse(data['sunrise_available'])
+        for minutes in [5,31,-1,True]:
+            settings=deepcopy(data['settings']);settings['sunrise_minutes']=minutes
+            with self.assertRaises(self.wake.AccessError):
+                await self.wake.update_card(hass,owner,config['alarm_id'],config['card_id'],settings,data['revision'])
+
+    async def test_tomorrow_status_uses_events_for_the_next_local_day_and_exclusive_end_dates(self):
+        hass,_,owner,admin,_,config,states,permission=self.fixture()
+        await self.wake.create_card(hass,admin,config)
+        weekend=await self.wake.tomorrow_info(hass,owner,config['alarm_id'],config['card_id'])
+        self.assertEqual(weekend['kind'],'wochenende');hass.services.async_call.assert_not_awaited()
+        type(self).now=datetime(2026,11,15,23,30,tzinfo=ZoneInfo('Europe/Berlin'))
+        states['calendar.school'].state='on'
+        hass.services.async_call.return_value={'calendar.school':{'events':[{'start':'2026-11-15','end':'2026-11-16'}]}}
+        school=await self.wake.tomorrow_info(hass,owner,config['alarm_id'],config['card_id'])
+        self.assertEqual(school['kind'],'schultag')
+        self.assertEqual(hass.services.async_call.call_args.args[2]['start_date_time'],'2026-11-16T00:00:00+01:00')
+        hass.services.async_call.return_value={'calendar.school':{'events':[{'start':'2026-11-16','end':'2026-11-17'}]}}
+        free=await self.wake.tomorrow_info(hass,owner,config['alarm_id'],config['card_id'])
+        self.assertEqual(free['kind'],'ferien');self.assertNotIn('events',free)
+        hass.services.async_call.side_effect=RuntimeError('Offline')
+        unknown=await self.wake.tomorrow_info(hass,owner,config['alarm_id'],config['card_id'])
+        self.assertIsNone(unknown['kind'])
+        hass.services.async_call.reset_mock();permission.allowed=False
+        with self.assertRaises(self.wake.AccessError):await self.wake.tomorrow_info(hass,owner,config['alarm_id'],config['card_id'])
+        hass.services.async_call.assert_not_awaited()
+
     async def test_upgrade_renames_the_default_entry_without_changing_stored_alarms(self):
         hass,entry,_,admin,_,config,_,_=self.fixture()
         await self.activate(hass,admin,config)

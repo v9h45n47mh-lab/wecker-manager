@@ -104,9 +104,25 @@ async def checked_record(hass, caller, alarm_id, card_id):
 
 
 def snapshot(hass, record):
+    settings = deepcopy(record["settings"])
+    settings["sunrise_minutes"] = sunrise_minutes(record)
     return {"exists": True, "binding": deepcopy(record["binding"]),
-            "settings": deepcopy(record["settings"]), "revision": record["revision"],
+            "settings": settings, "revision": record["revision"],
+            "sunrise_available": has_dimmable_light(hass, record["binding"]),
             "error": runtime(hass)["errors"].get(record["binding"]["card_id"], "")}
+
+
+def sunrise_minutes(record):
+    """Read editable settings, falling back to the original fixed card binding."""
+    return record["settings"].get("sunrise_minutes", record["binding"].get("sunrise_minutes", 0))
+
+
+def has_dimmable_light(hass, binding):
+    for item in binding["lights"]:
+        state = hass.states.get(item["entity_id"])
+        if state and set(state.attributes.get("supported_color_modes", [])) - {"onoff", "unknown"}:
+            return True
+    return False
 
 
 def save_record(hass, entry, alarm_id, record, *, notify=True):
@@ -134,9 +150,9 @@ def default_settings(hass, alarm_id):
 
 
 def validate_settings(raw):
-    if not isinstance(raw, dict) or set(raw) != {"volume", "types"} or not isinstance(raw["types"], dict) or set(raw["types"]) != set(TYPES):
-        raise AccessError("invalid_config", "Nur Weckzeiten, Schnellzeiten, Musikschalter und Lautstärke sind änderbar.")
-    result = {"volume": integer(raw["volume"], 5, 15), "types": {}}
+    if not isinstance(raw, dict) or not {"volume", "types"} <= set(raw) or set(raw) - {"volume", "types", "sunrise_minutes"} or not isinstance(raw["types"], dict) or set(raw["types"]) != set(TYPES):
+        raise AccessError("invalid_config", "Nur Weckzeiten, Schnellzeiten, Musikschalter, Lautstärke und Sonnenaufgang sind änderbar.")
+    result = {"volume": integer(raw["volume"], 5, 15), "types": {}, "sunrise_minutes": integer(raw.get("sunrise_minutes", 0), 0, 30)}
     for kind in TYPES:
         item = raw["types"][kind]
         if not isinstance(item, dict) or set(item) != {"time", "enabled", "music", "presets"}:
@@ -248,6 +264,7 @@ async def create_card(hass, caller, config):
                    "covers": checked_covers, "lights": checked_lights, "calendar_entity": calendar, "sunrise_minutes": sunrise}
         # A recreated card replaces the old card for this alarm ID, so only one executes.
         settings = deepcopy(existing["settings"]) if existing else default_settings(hass, alarm_id)
+        settings["sunrise_minutes"] = (sunrise_minutes(existing) if existing else sunrise) if checked_lights else 0
         retired = list(existing.get("retired_card_ids", [])) + [existing["binding"]["card_id"]] if existing else []
         record = {"binding": binding, "account": deepcopy(account), "settings": settings, "revision": 1,
                   "runs": deepcopy(existing.get("runs", {})) if existing else {}, "retired_card_ids": retired,
@@ -267,14 +284,48 @@ async def update_card(hass, caller, alarm_id, card_id, settings, revision):
         entry, record, _ = await checked_record(hass, caller, alarm_id, card_id)
         if type(revision) is not int or revision != record["revision"]:
             raise AccessError("conflict", "Die Einstellungen wurden auf einem anderen Gerät geändert. Bitte erneut laden.")
-        updated = {**record, "settings": validate_settings(settings), "revision": record["revision"] + 1}
+        if isinstance(settings, dict) and "sunrise_minutes" not in settings:
+            settings = {**settings, "sunrise_minutes": sunrise_minutes(record)}
+        validated = validate_settings(settings)
+        if validated["sunrise_minutes"] and validated["sunrise_minutes"] != sunrise_minutes(record) and not has_dimmable_light(hass, record["binding"]):
+            raise AccessError("invalid_config", "Für den Sonnenaufgang ist mindestens eine fest zugeordnete dimmbare Lampe erforderlich.")
+        updated = {**record, "settings": validated, "revision": record["revision"] + 1}
         save_record(hass, entry, alarm_id, updated)
         return snapshot(hass, updated)
 
 
+async def tomorrow_info(hass, caller, alarm_id, card_id):
+    """Describe tomorrow from actual calendar events in the HA time zone."""
+    _, record, owner = await checked_record(hass, caller, alarm_id, card_id)
+    start = (dt_util.as_local(dt_util.utcnow()) + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
+    result = {"date": start.date().isoformat(), "kind": "wochenende" if start.weekday() >= 5 else "schultag"}
+    calendar_id = record["binding"]["calendar_entity"]
+    if start.weekday() < 5 and calendar_id:
+        # Check both users before asking for calendar data; never return events.
+        allowed_entity(hass, owner, caller, calendar_id, "calendar", control=False)
+        end = start + timedelta(days=1)
+        try:
+            async with asyncio.timeout(10):
+                response = await hass.services.async_call("calendar", "get_events", {
+                    "entity_id": calendar_id, "start_date_time": start.isoformat(), "end_date_time": end.isoformat(),
+                }, blocking=True, return_response=True, context=Context(user_id=caller.id))
+            events = response[calendar_id]["events"]
+            if not isinstance(events, list):
+                raise ValueError("Invalid calendar response")
+            def moment(raw):
+                value_ = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+                return value_ if value_.tzinfo else value_.replace(tzinfo=start.tzinfo)
+            if any(moment(event["start"]) < end and moment(event["end"]) > start for event in events):
+                result["kind"] = "ferien"
+        except Exception:
+            return {"date": result["date"], "kind": None, "label": "Morgen: Kalender nicht erreichbar"}
+    result["label"] = {"schultag": "Morgen ist Schultag", "wochenende": "Morgen ist Wochenende", "ferien": "Morgen ist schulfrei"}[result["kind"]]
+    return result
+
+
 @websocket_api.websocket_command({
     vol.Required("type"): "wecker_manager/card",
-    vol.Required("action"): vol.In(["catalog", "get", "create", "update"]),
+    vol.Required("action"): vol.In(["catalog", "get", "create", "update", "day_info"]),
     vol.Optional("alarm_id"): str,
     vol.Optional("card_id"): str,
     vol.Optional("owner_id"): str,
@@ -289,6 +340,8 @@ async def websocket_wake_card(hass, connection, msg):
             action = msg["action"]
             if action == "catalog":
                 result = await catalog(hass, connection.user, msg.get("owner_id"))
+            elif action == "day_info":
+                result = await tomorrow_info(hass, connection.user, msg.get("alarm_id"), msg.get("card_id"))
             elif action == "create":
                 result = await create_card(hass, connection.user, msg.get("config"))
             elif action == "update":
@@ -329,14 +382,15 @@ def day_matches(hass, binding, kind, when):
 
 def due_phases(hass, record, when):
     binding = record["binding"]
+    sunrise = sunrise_minutes(record)
     result = []
     for kind, settings in record["settings"]["types"].items():
         if not settings["enabled"]:
             continue
         if settings["time"] == when.strftime("%H:%M") and day_matches(hass, binding, kind, when):
             result.append((kind, "wake", when.date().isoformat()))
-        if kind == "schultag" and binding["lights"] and binding["sunrise_minutes"]:
-            target = when + timedelta(minutes=binding["sunrise_minutes"])
+        if kind == "schultag" and binding["lights"] and sunrise:
+            target = when + timedelta(minutes=sunrise)
             # The calendar's current state describes today; don't guess tomorrow.
             if target.date() == when.date() and settings["time"] == target.strftime("%H:%M") and day_matches(hass, binding, kind, target):
                 result.append((kind, "sunrise", target.date().isoformat()))
@@ -388,7 +442,7 @@ async def execute(hass, entry, record, owner, kind, phase):
             await asyncio.sleep(1)
             # Recheck device permissions after the delayed second command.
             allowed_entity(hass, owner, None, item["entity_id"], "light")
-            await hass.services.async_call("light", "turn_on", {**data, "brightness_pct": item["brightness"], "transition": binding["sunrise_minutes"] * 60 - 1}, blocking=True, context=context)
+            await hass.services.async_call("light", "turn_on", {**data, "brightness_pct": item["brightness"], "transition": sunrise_minutes(record) * 60 - 1}, blocking=True, context=context)
 
     async def cover_action(item):
         allowed_entity(hass, owner, None, item["entity_id"], "cover")

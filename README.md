@@ -2,13 +2,15 @@
 
 ![Wecker](custom_components/wecker_manager/brand/icon.png)
 
-Eigenständige Home-Assistant-Integration mit Dashboardkarte für **Schultag, Wochenende und Ferien/schulfrei**. Version **1.1.1**, gemeinsames **HA UI Kit 1.4.1**.
+Eigenständige Home-Assistant-Integration mit Dashboardkarte für **Schultag, Wochenende und Ferien/schulfrei**. Version **1.2.0**, gemeinsames **HA UI Kit 1.4.1**.
 
 ## Funktionen
 
 - Uhrzeit antippen und mit getrennten Stunden-/Minuten-Drehrädern ändern. Touch, Maus und Tastatur; Übernehmen/Abbrechen.
 - Pro Weckertyp null bis drei Schnellzeiten in den Einstellungen.
 - Gemeinsame Musiklautstärke von **5 bis 15 %** für alle gewählten Boxen.
+- Sonnenaufgang in den Weckereinstellungen ein-/ausschalten und die Vorlaufzeit wählen. Er verwendet die fest zugeordneten dimmbaren Lampen und deren Zielhelligkeit.
+- Kompakte Ansicht mit Symbolen, grauen Schnellzeiten nebeneinander und getrennter Anzeige **Morgen ist …**.
 - Beim Anlegen genau **ein Musikkonto** und **mehrere Sonos-Boxen** festlegen.
 - **Mehrere Rollläden**, jeweils mit eigener Zielposition, und **mehrere Lichter** mit eigener Helligkeit, Farbtemperatur oder Farbe.
 - Konto und Geräte bleiben danach fest zugeordnet. Änderungen erfordern eine neu angelegte Karte mit neuer Kartenkennung.
@@ -25,11 +27,11 @@ Eigenständige Home-Assistant-Integration mit Dashboardkarte für **Schultag, Wo
 
 Der Music Manager wird als vorhandene Integration verwendet. Dieses Repository installiert ausschließlich `custom_components/wecker_manager`; es enthält und ersetzt keine Music-Manager-Installation. Die Dashboard-Ressource wird automatisch registriert.
 
-## Update auf 1.1.1
+## Update auf 1.2.0
 
-In HACS aktualisieren, Home Assistant neu starten und im Browser vollständig neu laden (**Strg+F5**). Integration und Kartenkatalog heißen jetzt **Wecker**. Vorhandene Karten, Geräte und Weckzeiten bleiben erhalten; der technische Kartentyp `custom:wecker-manager-card` bleibt gleich.
+In HACS aktualisieren, Home Assistant neu starten und im Browser vollständig neu laden (**Strg+F5**). Vorhandene Karten, Geräte, Weckzeiten und Sonnenaufgangszeiten bleiben erhalten; der technische Kartentyp `custom:wecker-manager-card` bleibt gleich. Der Sonnenaufgang wird jetzt nach der Einrichtung über das Zahnrad geändert.
 
-Zeigt der Karteneditor noch „Karte anlegen“ in der Vorschau oder den Hinweis zur automatischen Ablösung alter Wecker, ist noch das alte Kartenmodul aktiv. Version 1.1.1 registriert einen eigenen Ressourcenpfad und führt durch die fünf Einrichtungsschritte. Nach dem vollständigen Neuladen den visuellen Editor erneut öffnen.
+Zeigt der Karteneditor noch „Karte anlegen“ in der Vorschau oder den Hinweis zur automatischen Ablösung alter Wecker, ist noch ein altes Kartenmodul aktiv. Die aktuelle Version registriert einen eigenen Ressourcenpfad und führt durch die fünf Einrichtungsschritte. Nach dem vollständigen Neuladen den visuellen Editor erneut öffnen.
 
 Die Integration liefert lokale Marketplace-Icons für Hell/Dunkel in 256 und 512 Pixeln mit. Sie verwenden das Weckersymbol des gemeinsamen UI Kits. Alte HACS-Versionen können Icons eigener Repositories erst nach Aktualisierung beziehungsweise Aktualisierung ihrer Metadaten anzeigen. Das Repository wird durch dieses Release nicht automatisch in den öffentlichen Marketplace-Katalog aufgenommen.
 
