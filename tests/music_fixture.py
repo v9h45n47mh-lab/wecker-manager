@@ -69,7 +69,7 @@ class GatewayTests:
                 pass
             mass.players = Players({'RINCON_AABBCCDDEEFF01400': NS(available=True)})
             mass.players.player_command_next_track = AsyncMock()
-            mass.player_queues = NS(play_media=AsyncMock(), play_index=AsyncMock(), get=lambda key: None)
+            mass.player_queues = NS(play_media=AsyncMock(), play_index=AsyncMock(), set_repeat=AsyncMock(), get=lambda key: None)
             entry = NS(data={'music_assistant_entry': 'mass-entry'}, options={'accounts': [account()]})
             entities = {
                 'media_player.sonos': NS(entity_id='media_player.sonos', platform='sonos', unique_id='RINCON_AABBCCDDEEFF01400', disabled_by=None),

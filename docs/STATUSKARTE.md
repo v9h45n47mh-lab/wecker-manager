@@ -21,7 +21,7 @@ cards:
     card_id: hier_card_id_paul
 ```
 
-**An/Aus** und der Punkt daneben zeigen, ob der jeweilige Tagestyp eingeschaltet ist. Das Tagessymbol verwendet dieselben zwei Farben wie die große Weckerkarte: Blau bei einer passenden Ausführung innerhalb der nächsten 24 Stunden, andernfalls Grau. Eigene Tagestypen erscheinen automatisch in derselben Reihenfolge.
+**An/Aus** und der Punkt daneben zeigen, ob der jeweilige Tagestyp eingeschaltet ist. Alle Tagessymbole sind blau. Ein sehr leicht blauer Zeilenhintergrund markiert eine passende Ausführung innerhalb der nächsten 24 Stunden. Eigene Tagestypen erscheinen automatisch in derselben Reihenfolge.
 
 Die Statuskarte bedient keinen Wecker und benötigt keine alten `input_boolean`-Helfer. Vorhandene alte Statuskarten mit diesen Helfern würden weiterhin nur deren alten Zustand anzeigen. Zum Ändern der Aktivierung wird die normale Weckerkarte verwendet.
 

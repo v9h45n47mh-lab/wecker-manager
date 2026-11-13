@@ -12,7 +12,7 @@ function fixture({days,settings:override,header,status=false,admin=false,upcomin
  window.HTMLElement.prototype.showModal=function(){this.open=true;};
  window.HTMLElement.prototype.close=function(){this.open=false;this.dispatchEvent(new window.Event('close'));};
  const context=vm.createContext({window,document,HTMLElement:window.HTMLElement,customElements:window.customElements,MutationObserver:window.MutationObserver,CustomEvent:window.CustomEvent,queueMicrotask,console,setTimeout,clearTimeout,URL,Promise});
- vm.runInContext("customElements.define('music-manager-alarm-row',class extends HTMLElement {setConfig(config){this.config=config}set hass(value){this._hass=value}});",context);
+ vm.runInContext("customElements.define('music-manager-alarm-row',class extends HTMLElement {static get supportsPlaybackSettings(){return true}setConfig(config){this.config=config}set hass(value){this._hass=value}});",context);
  vm.runInContext(bundle.replace(/^export /gm,''),context);
  const config={type:'custom:wecker-manager-card',alarm_id:'school',card_id:'card_1',owner_id:'max',speakers:['media_player.one','media_player.two'],covers:[{entity_id:'cover.one',position:60}],lights:[{entity_id:'light.one',brightness:70,color_mode:'keep'}],calendar_entity:'calendar.school',sunrise_minutes:5};
  if(header)config.header=header;
@@ -29,6 +29,7 @@ function fixture({days,settings:override,header,status=false,admin=false,upcomin
   if(msg.action==='get')return clone(record);
   if(msg.action==='catalog')return {shared_days:[],calendars:[]};
   if(msg.action==='update'){if(fail)throw {code:'save_failed',message:'Speichern fehlgeschlagen'};if(msg.revision!==record.revision)throw {code:'conflict',message:'Auf einem anderen Gerät geändert'};record.settings=clone(msg.settings);record.revision++;for(const callback of listeners)callback({data:{alarm_id:'school'}});return clone(record);}
+  if(msg.action==='set_playback'){if(fail)throw {code:'save_failed',message:'Speichern fehlgeschlagen'};record.playback=clone(msg.playback);record.revision++;for(const callback of listeners)callback({data:{alarm_id:'school'}});return clone(record);}
   if(msg.action==='set_enabled'){if(fail)throw {code:'save_failed',message:'Speichern fehlgeschlagen'};record.settings.types[msg.kind].enabled=msg.enabled;record.revision++;for(const callback of listeners)callback({data:{alarm_id:'school'}});return clone(record);}
   throw Error('Unbekannte Anfrage');
  }});
@@ -125,7 +126,7 @@ test('legacy header settings never bring back the removed heading; settings show
   assert.match(e.card.shadowRoot.querySelector('.version-info').textContent,/Wecker \d+\.\d+\.\d+/);
  }
 });
-test('only enabled types returned in the next 24 hours are blue; all others are grey',async()=>{
+test('next-24-hour activity highlights each whole group while symbols keep the primary colour',async()=>{
  const e=fixture();await flush();const icon=kind=>e.card.shadowRoot.querySelector(`[data-wake-kind="${kind}"]`);
  assert.equal(icon('schultag').dataset.nextActive,'true');assert.match(icon('schultag').getAttribute('aria-label'),/nächsten 24 Stunden/);
  assert.equal(icon('wochenende').dataset.nextActive,'false');assert.equal(icon('ferien').dataset.nextActive,'false');
@@ -150,4 +151,10 @@ test('administrator settings render with supported UI Kit icons and open the sha
  assert(e.card.shadowRoot.querySelector('#wake-settings').lastElementChild.classList.contains('version-info'));
  e.click('manage-templates');await flush();assert(e.card.shadowRoot.querySelector('#wake-templates-dialog').open);assert(e.card.shadowRoot.querySelector('wecker-manager-day-manager').shadowRoot.querySelector('[data-action="day-add"]'));
  e.card.remove();assert.equal(e.listeners.size,0);
+});
+
+test('shared music row saves playback policy without overwriting wake settings',async()=>{
+ const e=fixture();await flush();const row=e.card.shadowRoot.querySelector('music-manager-alarm-row'),settings=clone(e.record.settings);assert.deepEqual(clone(row.playbackSettings.value),{mode:'duration',minutes:5});
+ await row.playbackSettings.save({mode:'duration',minutes:9});await flush();assert.equal(e.record.playback.minutes,9);assert.deepEqual(e.record.settings,settings);assert(e.calls.some(call=>call.action==='set_playback'));
+ e.fail=true;await assert.rejects(row.playbackSettings.save({mode:'track_end',minutes:9}));assert.equal(e.record.playback.mode,'duration');e.card.remove();
 });

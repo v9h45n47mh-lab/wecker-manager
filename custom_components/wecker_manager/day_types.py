@@ -29,7 +29,7 @@ def validate_days(raw):
     result, identifiers, names = [], set(), set()
     fields = {"id", "name", "icon", "weekdays", "music_mode", "confirm_disable", "calendar_entity"}
     for item in raw:
-        if not isinstance(item, dict) or not fields <= set(item) or set(item) - fields - {"calendar_mode", "template_id", "template_revision"}:
+        if not isinstance(item, dict) or not fields <= set(item) or set(item) - fields - {"display_name", "calendar_mode", "template_id", "template_revision"}:
             raise AccessError("invalid_config", "Die Angaben für einen Tagestyp sind unvollständig.")
         if not isinstance(item["id"], str) or not DAY_ID.fullmatch(item["id"]) or item["id"] in identifiers:
             raise AccessError("invalid_config", "Jeder Tagestyp benötigt eine eigene Kennung.")
@@ -38,6 +38,9 @@ def validate_days(raw):
         if item["name"].strip().casefold() in names:
             raise AccessError("invalid_config", "Dieser Tagestyp ist auf der Karte bereits vorhanden. Bitte den vorhandenen Typ bearbeiten.")
         names.add(item["name"].strip().casefold())
+        display = item.get("display_name", item["name"])
+        if not isinstance(display, str) or not 1 <= len(display.strip()) <= 60:
+            raise AccessError("invalid_config", "Bitte einen Anzeigenamen mit höchstens 60 Zeichen vergeben.")
         if not isinstance(item["icon"], str) or len(item["icon"]) > 80 or not ICON.fullmatch(item["icon"]):
             raise AccessError("invalid_config", "Bitte ein gültiges Symbol auswählen.")
         weekdays = item["weekdays"]
@@ -56,7 +59,7 @@ def validate_days(raw):
         if "template_revision" in item and (type(item["template_revision"]) is not int or item["template_revision"] < 1):
             raise AccessError("invalid_config", "Die Version des gemeinsamen Tagestyps ist ungültig.")
         identifiers.add(item["id"])
-        result.append({**deepcopy(item), "name": item["name"].strip(), "weekdays": sorted(weekdays), "calendar_mode": mode})
+        result.append({**deepcopy(item), "name": item["name"].strip(), "display_name": display.strip(), "weekdays": sorted(weekdays), "calendar_mode": mode})
     return result
 
 

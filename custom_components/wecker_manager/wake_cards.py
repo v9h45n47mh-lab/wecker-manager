@@ -5,6 +5,7 @@ from copy import deepcopy
 from datetime import date, datetime, timedelta, timezone
 import logging
 import re
+import uuid
 from types import SimpleNamespace
 
 import voluptuous as vol
@@ -13,7 +14,7 @@ from homeassistant.auth.permissions.const import POLICY_CONTROL, POLICY_READ
 from homeassistant.components import websocket_api
 from homeassistant.core import Context
 from homeassistant.helpers import entity_registry as er
-from homeassistant.helpers.event import async_track_time_change
+from homeassistant.helpers.event import async_track_time_change, async_call_later
 from homeassistant.util import dt as dt_util
 
 from ..music_manager.access import AccessError, account_for, checked_account, sonos_uid, validate_uri, value
@@ -68,6 +69,64 @@ def integer(value_, minimum, maximum):
     return value_
 
 
+def playback_policy(record):
+    return deepcopy(record.get("playback", {"mode": "duration", "minutes": 5}))
+
+
+def validate_playback(raw):
+    if not isinstance(raw, dict) or set(raw) != {"mode", "minutes"} or raw["mode"] not in ("duration", "track_end"):
+        raise AccessError("invalid_config", "Bitte eine feste Dauer oder „Wenn Titel endet“ wählen.")
+    return {"mode": raw["mode"], "minutes": integer(raw["minutes"], 1, 1440)}
+
+
+async def set_playback(hass, caller, alarm_id, card_id, raw):
+    policy = validate_playback(raw)
+    async with runtime(hass)["lock"]:
+        entry, record, owner = await checked_record(hass, caller, alarm_id, card_id)
+        if policy["mode"] == "track_end":
+            from homeassistant.components.frontend.storage import async_user_store
+            selected = selection_from(await async_user_store(hass, owner.id), alarm_id)
+            if not selected or selected.get("media_type") != "track":
+                raise AccessError("invalid_config", "„Wenn Titel endet“ benötigt einen einzelnen Titel. Für Radio bitte eine feste Dauer wählen.")
+        updated = {**record, "playback": policy, "revision": record["revision"] + 1}
+        save_record(hass, entry, alarm_id, updated)
+        return snapshot(hass, updated)
+
+
+async def queue_repeat(mass, queue_id, mode):
+    from music_assistant_models.enums import RepeatMode
+    command = getattr(mass.player_queues, "queue_command_repeat", None) or getattr(mass.player_queues, "set_repeat", None)
+    if not command:
+        raise AccessError("repeat_unavailable", "Music Assistant unterstützt die Wiederholung nicht. Bitte Music Assistant aktualisieren.")
+    await command(queue_id, RepeatMode(mode))
+
+
+def schedule_music_stop(hass, alarm_id, *, retry=False):
+    state = runtime(hass)
+    timers = state.setdefault("stop_timers", {})
+    if cancel := timers.pop(alarm_id, None):
+        cancel()
+    entry = entry_for(hass)
+    record = entry.options.get(KEY, {}).get(alarm_id)
+    if not record or not record.get("stops"):
+        return
+    delay = max(15 if retry else 0, min((datetime.fromisoformat(item["at"]) - dt_util.utcnow()).total_seconds() for item in record["stops"]))
+    card_id = record["binding"]["card_id"]
+
+    async def finish(_now):
+        timers.pop(alarm_id, None)
+        try:
+            current_entry, current, owner = await checked_record(hass, None, alarm_id, card_id)
+            await stop_due(hass, current_entry, alarm_id, current, owner)
+        except Exception:
+            state["errors"][card_id] = "Die Weckmusik konnte nicht beendet werden. Bitte Geräte und Verbindung prüfen."
+            hass.bus.async_fire(EVENT, {"alarm_id": alarm_id})
+        finally:
+            schedule_music_stop(hass, alarm_id, retry=True)
+
+    timers[alarm_id] = async_call_later(hass, delay, finish)
+
+
 def allowed_entity(hass, owner, caller, entity_id, domain, *, control=True):
     if not isinstance(entity_id, str) or not re.fullmatch(domain + r"\.[a-z0-9_]+", entity_id):
         raise AccessError("invalid_entity", "Die gewählte Entität ist ungültig.")
@@ -100,6 +159,17 @@ def checked_hue_scene(hass, owner, caller, scene_id, lights):
     return covered
 
 
+def checked_light_scene(hass, owner, caller, scene_id, light_id):
+    allowed_entity(hass, owner, caller, scene_id, "scene")
+    allowed_entity(hass, owner, caller, light_id, "light")
+    result = hue_scenes.light_actions(hass, scene_id, light_id)
+    if not result:
+        raise AccessError("invalid_scene", "Die Hue-Szene enthält keine passenden Einstellungen für diese Lampe. Bitte neu auswählen.")
+    for member in result[1]:
+        allowed_entity(hass, owner, caller, member, "light")
+    return result
+
+
 async def checked_record(hass, caller, alarm_id, card_id):
     entry = entry_for(hass)
     record = entry.options.get(KEY, {}).get(identifier(alarm_id))
@@ -124,6 +194,7 @@ def snapshot(hass, record):
     for kind, item in settings["types"].items():
         item["sunrise_minutes"] = sunrise_minutes(record, kind)
     return {"exists": True, "binding": deepcopy(record["binding"]),
+            "playback": playback_policy(record),
             "settings": settings, "days": day_definitions(record), "revision": record["revision"],
             "name": record.get("name", "Wecker"), "version": VERSION,
             "sunrise_available": has_dimmable_light(hass, record["binding"]),
@@ -251,7 +322,9 @@ async def catalog(hass, caller, owner_id=None):
             if changed or templates != entry.options.get(shared_days.LIBRARY, {}):
                 commit_shared(hass, entry, templates, cards, changed)
     calendars = {item["id"] for item in devices["calendars"]}
-    available_days = [{**deepcopy(item), "uses": sum(any(d.get("template_id") == item["id"] for d in day_definitions(record)) for record in cards.values())}
+    owner_names = {account["value"]: account["label"] for account in accounts}
+    available_days = [{**deepcopy(item), "uses": sum(any(d.get("template_id") == item["id"] for d in day_definitions(record)) for record in cards.values()),
+                       "used_by": [{"name": record.get("name", "Wecker"), "owner": owner_names.get(record["binding"]["owner_id"], "")} for record in cards.values() if any(d.get("template_id") == item["id"] for d in day_definitions(record))]}
                       for item in templates.values() if not item["calendar_entity"] or item["calendar_entity"] in calendars]
     available_days.sort(key=lambda item: item["name"].casefold())
     allowed_lights = set().union(*(hue_scenes.light_members(hass, item["id"]) for item in devices["lights"])) if devices["lights"] else set()
@@ -260,15 +333,26 @@ async def catalog(hass, caller, owner_id=None):
         if not state.entity_id.startswith("scene."):
             continue
         members = hue_scenes.scene_members(hass, state.entity_id)
-        if not members or not members <= allowed_lights:
-            continue
+        per_light = []
         try:
             allowed_entity(hass, owner, caller, state.entity_id, "scene")
-            for member in members:
-                allowed_entity(hass, owner, caller, member, "light")
         except AccessError:
             continue
-        scenes.append({"id": state.entity_id, "label": state.attributes.get("friendly_name", state.entity_id), "members": sorted(members)})
+        for light in devices["lights"]:
+            try:
+                checked_light_scene(hass, owner, caller, state.entity_id, light["id"])
+                per_light.append(light["id"])
+            except AccessError:
+                pass
+        if not per_light and (not members or not members <= allowed_lights):
+            continue
+        if not per_light:
+            try:
+                for member in members:
+                    allowed_entity(hass, owner, caller, member, "light")
+            except AccessError:
+                continue
+        scenes.append({"id": state.entity_id, "label": state.attributes.get("friendly_name", state.entity_id), "members": sorted(members), "lights": per_light})
     scenes.sort(key=lambda item: item["label"].casefold())
     return {"accounts": accounts, "shared_days": available_days, "hue_scenes": scenes, **devices}
 
@@ -276,7 +360,7 @@ async def catalog(hass, caller, owner_id=None):
 async def save_day_template(hass, caller, raw, revision):
     require_admin(caller)
     fields = {"id", "name", "icon", "weekdays", "calendar_entity", "calendar_mode"}
-    if not isinstance(raw, dict) or set(raw) != fields or type(revision) is not int or revision < 0:
+    if not isinstance(raw, dict) or not fields <= set(raw) or set(raw) - fields - {"display_name"} or type(revision) is not int or revision < 0:
         raise AccessError("invalid_config", "Der gemeinsame Tagestyp ist unvollständig.")
     day = validate_days([{**raw, "music_mode": "switchable", "confirm_disable": False}])[0]
     entry = entry_for(hass)
@@ -292,6 +376,8 @@ async def save_day_template(hass, caller, raw, revision):
             if migrated or templates != entry.options.get(shared_days.LIBRARY, {}):
                 commit_shared(hass, entry, templates, cards, migrated)
             return {"saved": True, "template": deepcopy(matching), "already_exists": True}
+        if any(key != day["id"] and item["name"].casefold() == day["name"].casefold() for key, item in templates.items()):
+            raise AccessError("name_in_use", "Dieser Name ist bereits vergeben. Bitte einen eindeutigen Namen wählen; der Anzeigename darf gleich sein.")
         template = {"id": day["id"], **shared_days.common(day), "revision": revision + 1}
         templates[day["id"]] = template
         changed = set(migrated)
@@ -376,7 +462,7 @@ async def create_card(hass, caller, config, *, reconfigure=False, revision=None,
                 raise AccessError("invalid_entity", "Ein gewählter Rollladen unterstützt keine Zielposition.")
             checked_covers.append({"entity_id": item["entity_id"], "position": position})
         for item in lights:
-            if not isinstance(item, dict) or set(item) - {"entity_id", "brightness", "color_mode", "kelvin", "rgb"}:
+            if not isinstance(item, dict) or set(item) - {"entity_id", "brightness", "color_mode", "kelvin", "rgb", "hue_scene"}:
                 raise AccessError("invalid_config", "Die Lichteinstellung ist ungültig.")
             state = allowed_entity(hass, owner, caller, item.get("entity_id"), "light")
             modes = state.attributes.get("supported_color_modes", [])
@@ -393,6 +479,9 @@ async def create_card(hass, caller, config, *, reconfigure=False, revision=None,
                 light["rgb"] = [integer(c, 0, 255) for c in rgb]
             elif light["color_mode"] != "keep":
                 raise AccessError("invalid_config", "Die Lichtfarbe ist ungültig.")
+            if item.get("hue_scene"):
+                checked_light_scene(hass, owner, caller, item["hue_scene"], item["entity_id"])
+                light["hue_scene"] = item["hue_scene"]
             checked_lights.append(light)
         for items in (checked_covers, checked_lights):
             if len({item["entity_id"] for item in items}) != len(items):
@@ -407,6 +496,8 @@ async def create_card(hass, caller, config, *, reconfigure=False, revision=None,
         if not isinstance(scene_id, str):
             raise AccessError("invalid_scene", "Bitte eine gültige Hue-Szene wählen.")
         if scene_id:
+            if any(item.get("hue_scene") for item in checked_lights):
+                raise AccessError("invalid_scene", "Die bisherige gemeinsame Hue-Szene muss zuerst auf einzelne Lampen übernommen werden.")
             checked_hue_scene(hass, owner, caller, scene_id, checked_lights)
             binding["hue_scene"] = scene_id
         # A recreated card replaces the old card for this alarm ID, so only one executes.
@@ -427,7 +518,7 @@ async def create_card(hass, caller, config, *, reconfigure=False, revision=None,
         if not isinstance(name, str) or not 1 <= len(name.strip()) <= 80:
             raise AccessError("invalid_config", "Bitte einen Namen für den Wecker vergeben.")
         retired = list(existing.get("retired_card_ids", [])) + ([existing["binding"]["card_id"]] if existing["binding"]["card_id"] != card_id else []) if existing else []
-        record = {"binding": binding, "name": name.strip(), "account": deepcopy(account), "days": days, "settings": settings, "revision": existing["revision"] + 1 if reconfigure else 1,
+        record = {"binding": binding, "name": name.strip(), "account": deepcopy(account), "days": days, "settings": settings, "playback": playback_policy(existing) if existing else {"mode": "duration", "minutes": 5}, "revision": existing["revision"] + 1 if reconfigure else 1,
                   "runs": deepcopy(existing.get("runs", {})) if existing else {}, "retired_card_ids": retired,
                   "stops": deepcopy(existing.get("stops", [])) if existing else []}
         alarms = [a for a in music_entry.options.get(CONF_ALARMS, []) if a.get("alarm_id") != alarm_id]
@@ -639,7 +730,7 @@ async def upcoming_info(hass, caller, alarm_id, card_id):
 
 @websocket_api.websocket_command({
     vol.Required("type"): "wecker_manager/card",
-    vol.Required("action"): vol.In(["catalog", "get", "create", "configure", "update", "set_enabled", "day_info", "upcoming", "configure_days", "save_day_template", "delete_day_template"]),
+    vol.Required("action"): vol.In(["catalog", "get", "create", "configure", "update", "set_enabled", "set_playback", "day_info", "upcoming", "configure_days", "save_day_template", "delete_day_template"]),
     vol.Optional("alarm_id"): str,
     vol.Optional("card_id"): str,
     vol.Optional("owner_id"): str,
@@ -653,6 +744,7 @@ async def upcoming_info(hass, caller, alarm_id, card_id):
     vol.Optional("day_offset"): int,
     vol.Optional("day_template"): dict,
     vol.Optional("template_id"): str,
+    vol.Optional("playback"): dict,
 })
 @websocket_api.async_response
 async def websocket_wake_card(hass, connection, msg):
@@ -661,6 +753,8 @@ async def websocket_wake_card(hass, connection, msg):
             action = msg["action"]
             if action == "catalog":
                 result = await catalog(hass, connection.user, msg.get("owner_id"))
+            elif action == "set_playback":
+                result = await set_playback(hass, connection.user, msg.get("alarm_id"), msg.get("card_id"), msg.get("playback"))
             elif action == "save_day_template":
                 result = await save_day_template(hass, connection.user, msg.get("day_template"), msg.get("revision"))
             elif action == "delete_day_template":
@@ -753,6 +847,9 @@ async def play_speaker(hass, entry, record, owner, source):
         radio = {"media_content_id": uri, "media_content_type": "music", "extra": {"title": title[:500]}}
     context = Context(user_id=owner.id)
     mass = account = target = None
+    policy = playback_policy(record)
+    if policy["mode"] == "track_end" and (radio is not None or not selected or selected.get("media_type") != "track"):
+        raise AccessError("invalid_config", "Für Radio oder die letzte Wiedergabe bitte eine feste Weckmusik-Dauer wählen.")
     if selected is not None and radio is None:
         mass, account, target = await apple_target(hass, music_entry_for(hass), {"source_entity": source}, owner)
         uri = validate_uri(selected.get("uri"), account["provider_id"])
@@ -761,13 +858,63 @@ async def play_speaker(hass, entry, record, owner, source):
         player = mass.players.get(target.unique_id)
         if not player or not value(player, "available", False):
             raise AccessError("player_unavailable", "Eine Musikbox ist in Music Assistant nicht erreichbar.")
-    await hass.services.async_call("media_player", "volume_set", {"entity_id": source, "volume_level": record["settings"]["volume"] / 100}, blocking=True, context=context)
-    if radio is not None:
-        await hass.services.async_call("media_player", "play_media", {"entity_id": source, **radio}, blocking=True, context=context)
-    elif selected is None:
-        await hass.services.async_call("media_player", "media_play", {"entity_id": source}, blocking=True, context=context)
-    else:
-        await mass.player_queues.play_media(queue_id=target.unique_id, media=uri, option="replace", user=account["ma_user_id"])
+    token = uuid.uuid4().hex
+    pending = {"source": source, "owner_id": owner.id, "token": token,
+               "at": (dt_util.utcnow() + timedelta(minutes=policy["minutes"] if policy["mode"] == "duration" else 5)).isoformat()}
+    if mass:
+        queue = mass.player_queues.get(target.unique_id)
+        previous = value(queue, "repeat_mode", "off") if queue else "off"
+        previous = getattr(previous, "value", previous)
+        pending.update(queue_id=target.unique_id, restore_repeat=previous if previous in ("off", "one", "all") else "off")
+    async with runtime(hass)["lock"]:
+        current = entry.options.get(KEY, {}).get(binding["alarm_id"])
+        if not current or current["binding"]["card_id"] != binding["card_id"]:
+            return
+        old = next((item for item in current.get("stops", []) if item["source"] == source and item.get("queue_id") == pending.get("queue_id")), None)
+        if old and "restore_repeat" in old:
+            pending["restore_repeat"] = old["restore_repeat"]
+        save_record(hass, entry, binding["alarm_id"], {**current, "stops": [item for item in current.get("stops", []) if item["source"] != source] + [pending]}, notify=False)
+    schedule_music_stop(hass, binding["alarm_id"])
+    attempted = False
+    try:
+        if mass:
+            await queue_repeat(mass, target.unique_id, "one" if policy["mode"] == "duration" else "off")
+        await hass.services.async_call("media_player", "volume_set", {"entity_id": source, "volume_level": record["settings"]["volume"] / 100}, blocking=True, context=context)
+        attempted = True
+        if radio is not None:
+            await hass.services.async_call("media_player", "play_media", {"entity_id": source, **radio}, blocking=True, context=context)
+        elif selected is None:
+            await hass.services.async_call("media_player", "media_play", {"entity_id": source}, blocking=True, context=context)
+        else:
+            await mass.player_queues.play_media(queue_id=target.unique_id, media=uri, option="replace", radio_mode=False, user=account["ma_user_id"])
+            await queue_repeat(mass, target.unique_id, "one" if policy["mode"] == "duration" else "off")
+    except Exception:
+        # Undo a partial start. Keep the deadline only if cleanup also fails.
+        try:
+            if attempted:
+                allowed_entity(hass, owner, None, source, "media_player")
+                await hass.services.async_call("media_player", "media_stop", {"entity_id": source}, blocking=True, context=context)
+            if mass:
+                await queue_repeat(mass, target.unique_id, pending["restore_repeat"])
+            async with runtime(hass)["lock"]:
+                current = entry.options.get(KEY, {}).get(binding["alarm_id"])
+                if current and current["binding"]["card_id"] == binding["card_id"]:
+                    save_record(hass, entry, binding["alarm_id"], {**current, "stops": [item for item in current.get("stops", []) if item.get("token") != token]}, notify=False)
+            schedule_music_stop(hass, binding["alarm_id"])
+        except Exception:
+            pass
+        raise
+    async with runtime(hass)["lock"]:
+        current = entry.options[KEY][binding["alarm_id"]]
+        remaining = []
+        for item in current.get("stops", []):
+            if item.get("token") == token:
+                if policy["mode"] == "track_end":
+                    continue  # A single-item queue with repeat off ends natively.
+                item = {**item, "at": (dt_util.utcnow() + timedelta(minutes=policy["minutes"])).isoformat()}
+            remaining.append(item)
+        save_record(hass, entry, binding["alarm_id"], {**current, "stops": remaining}, notify=False)
+    schedule_music_stop(hass, binding["alarm_id"])
 
 
 async def execute(hass, entry, record, owner, kind, phase):
@@ -779,6 +926,17 @@ async def execute(hass, entry, record, owner, kind, phase):
 
     async def light_action(item):
         state = allowed_entity(hass, owner, None, item["entity_id"], "light")
+        if item.get("hue_scene"):
+            bridge, actions = checked_light_scene(hass, owner, None, item["hue_scene"], item["entity_id"])
+            if phase == "sunrise":
+                for member, (_, action) in actions.items():
+                    light = allowed_entity(hass, owner, None, member, "light")
+                    if getattr(getattr(action, "on", None), "on", True) and set(light.attributes.get("supported_color_modes", [])) - {"onoff", "unknown"}:
+                        await hass.services.async_call("light", "turn_on", {"entity_id": member, "brightness_pct": 1}, blocking=True, context=context)
+                await asyncio.sleep(1)
+                bridge, actions = checked_light_scene(hass, owner, None, item["hue_scene"], item["entity_id"])
+            await hue_scenes.apply_light_actions(bridge, actions, sunrise_minutes(record, kind) * 60 - 1 if phase == "sunrise" else None)
+            return
         modes = state.attributes.get("supported_color_modes", [])
         if phase == "sunrise" and set(modes) <= {"onoff", "unknown"}:
             return
@@ -822,15 +980,6 @@ async def execute(hass, entry, record, owner, kind, phase):
     if phase == "wake":
         tasks += [cover_action(item) for item in binding["covers"]]
         if record["settings"]["types"][kind]["music"]:
-            # Persist the stop deadline before starting playback. It survives a restart.
-            async with runtime(hass)["lock"]:
-                current = entry.options.get(KEY, {}).get(binding["alarm_id"])
-                if not current or current["binding"]["card_id"] != binding["card_id"]:
-                    return
-                pending = [item for item in current.get("stops", []) if item["source"] not in binding["speakers"]]
-                stop_at = (dt_util.utcnow() + timedelta(minutes=5)).isoformat()
-                pending += [{"source": source, "at": stop_at, "owner_id": owner.id} for source in binding["speakers"]]
-                save_record(hass, entry, binding["alarm_id"], {**current, "stops": pending}, notify=False)
             tasks += [play_speaker(hass, entry, record, owner, source) for source in binding["speakers"]]
     results = await asyncio.gather(*tasks, return_exceptions=True)
     failures = [result for result in results if isinstance(result, Exception)]
@@ -845,15 +994,29 @@ async def stop_due(hass, entry, alarm_id, record, owner):
     due = [item for item in pending if datetime.fromisoformat(item["at"]) <= now]
     if not due:
         return
-    async with runtime(hass)["lock"]:
+    for item in due:
         current = entry.options.get(KEY, {}).get(alarm_id)
-        if not current or current["binding"]["card_id"] != record["binding"]["card_id"]:
-            return
-        save_record(hass, entry, alarm_id, {**current, "stops": [item for item in current.get("stops", []) if item not in due]}, notify=False)
-    for owner_id, source in dict.fromkeys((item.get("owner_id", owner.id), item["source"]) for item in due):
+        if not current or current["binding"]["card_id"] != record["binding"]["card_id"] or item not in current.get("stops", []):
+            continue
+        owner_id, source = item.get("owner_id", owner.id), item["source"]
         stop_owner = await alarm_owner(hass, {"ha_user_id": owner_id}, None)
         allowed_entity(hass, stop_owner, None, source, "media_player")
-        await hass.services.async_call("media_player", "media_stop", {"entity_id": source}, blocking=True, context=Context(user_id=stop_owner.id))
+        if not item.get("stopped"):
+            await hass.services.async_call("media_player", "media_stop", {"entity_id": source}, blocking=True, context=Context(user_id=stop_owner.id))
+            stopped = {**item, "stopped": True}
+            async with runtime(hass)["lock"]:
+                current = entry.options[KEY][alarm_id]
+                save_record(hass, entry, alarm_id, {**current, "stops": [stopped if pending == item else pending for pending in current.get("stops", [])]}, notify=False)
+            item = stopped
+        if item.get("queue_id"):
+            mass, _, target = await apple_target(hass, music_entry_for(hass), {"source_entity": source}, stop_owner)
+            if target.unique_id != item["queue_id"]:
+                raise AccessError("binding_changed", "Die Wecker-Box wurde geändert.")
+            await queue_repeat(mass, target.unique_id, item.get("restore_repeat", "off"))
+        async with runtime(hass)["lock"]:
+            current = entry.options[KEY][alarm_id]
+            save_record(hass, entry, alarm_id, {**current, "stops": [pending for pending in current.get("stops", []) if pending != item]}, notify=False)
+    schedule_music_stop(hass, alarm_id)
 
 
 async def tick(hass, when):
@@ -904,6 +1067,8 @@ def async_setup_wake_cards(hass):
     templates, cards, changed = shared_days.migrate(entry.options)
     if changed or templates != entry.options.get(shared_days.LIBRARY, {}):
         commit_shared(hass, entry, templates, cards, changed)
+    for alarm_id in cards:
+        schedule_music_stop(hass, alarm_id)
     if not state.get("unsubscribe"):
         async def scheduled_tick(when):
             await tick(hass, when)
@@ -912,5 +1077,7 @@ def async_setup_wake_cards(hass):
 
 def async_unload_wake_cards(hass):
     state = hass.data.get(RUNTIME, {})
+    for cancel in state.pop("stop_timers", {}).values():
+        cancel()
     if unsubscribe := state.pop("unsubscribe", None):
         unsubscribe()

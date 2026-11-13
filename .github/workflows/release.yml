@@ -17,7 +17,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: v9h45n47mh-lab/music-manager
-          ref: 5b312361676197bf1178ce76b63ab46ac76d3975
+          ref: d98339f219fb4097ada33756bde37b35ca904a82
           path: .test-deps/music-manager
           persist-credentials: false
       - uses: actions/setup-node@v4
