@@ -1,15 +1,35 @@
 const assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path'),http=require('node:http');
 let chromium;try{({chromium}=require('playwright'));}catch{({chromium}=require(path.join(process.env.CODEX_PRIMARY_RUNTIME_NODE_MODULES,'playwright')));}
 const root=path.resolve(__dirname,'..'),screens=path.join(root,'test-results');fs.mkdirSync(screens,{recursive:true});
-const server=http.createServer((req,res)=>{const target=path.resolve(root,'.'+req.url.split('?')[0]);if(!target.startsWith(root+path.sep)){res.writeHead(403);res.end();return;}try{res.setHeader('Content-Type',target.endsWith('.js')?'text/javascript':'text/html');res.end(fs.readFileSync(target));}catch{res.writeHead(404);res.end();}});
+const server=http.createServer((req,res)=>{const route=req.url.split('?')[0];if(route==='/test-music.js'){const folder=process.env.MUSIC_MANAGER_SOURCE||path.resolve(root,'../music-manager');res.setHeader('Content-Type','text/javascript');res.end(fs.readFileSync(path.join(folder,'custom_components/music_manager/frontend/music-manager-card.js')));return;}const target=path.resolve(root,'.'+route);if(!target.startsWith(root+path.sep)){res.writeHead(403);res.end();return;}try{res.setHeader('Content-Type',target.endsWith('.js')?'text/javascript':'text/html');res.end(fs.readFileSync(target));}catch{res.writeHead(404);res.end();}});
 let browser;
 (async()=>{
  await new Promise(r=>server.listen(0,'127.0.0.1',r));
  browser=await chromium.launch({...(process.env.CHROMIUM_PATH?{executablePath:process.env.CHROMIUM_PATH}:{}),headless:true,args:['--no-sandbox']});
  const page=await browser.newPage({viewport:{width:1100,height:1000}}),errors=[];page.on('pageerror',error=>errors.push(error.message));
  const url=`http://127.0.0.1:${server.address().port}/tests/fixture.html`,card=()=>page.locator('wecker-manager-card'),action=name=>card().locator(`[data-action="${name}"]`);
- await page.goto(url);await action('time').first().waitFor();
+ await page.goto(url+'?real_music=1');await action('time').first().waitFor();
  assert.equal(await action('time').count(),3);
+ await card().locator('#wake-day').filter({hasText:'Morgen ist Wochenende'}).waitFor();
+ const music=card().locator('music-manager-alarm-row');
+ await music.getByRole('button',{name:'Auswählen',exact:true}).waitFor();
+ await music.getByRole('button',{name:'Auswählen',exact:true}).click();
+ await music.locator('#alarm-dialog[open]').waitFor();await page.keyboard.press('Escape');
+ for(const width of [1100,500,390,320])for(const dark of [false,true]){
+  await page.setViewportSize({width,height:1100});await page.evaluate(d=>document.body.classList.toggle('dark',d),dark);
+  assert.equal(await card().locator('.wake-symbol ha-icon').count(),8);
+  assert.equal(await card().locator('#wake-header .row-text').count(),0);
+  const groups=await card().locator('.wake-presets').evaluateAll(groups=>groups.map(group=>({
+   buttons:[...group.children].map(button=>{const box=button.getBoundingClientRect();return {left:box.left,right:box.right,top:box.top};}),
+   last:group.getBoundingClientRect().right,
+  })));
+  for(const group of groups){for(let i=1;i<group.buttons.length;i++){
+   const previous=group.buttons[i-1],next=group.buttons[i];assert.equal(next.top,previous.top);assert(next.left-previous.right<=9);
+  }assert(group.buttons.at(-1).right<=group.last);}
+  assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
+  await card().screenshot({path:path.join(screens,`reference-layout-${width}-${dark?'dark':'light'}.png`)});
+ }
+ await page.setViewportSize({width:1100,height:1000});await page.evaluate(()=>document.body.classList.remove('dark'));
  await action('time').first().click();
  const time=card().locator('#wake-time-dialog'),wheel=time.locator('wecker-manager-time-wheel');
  assert(await time.isVisible());
@@ -19,17 +39,22 @@ let browser;
  assert.equal(await wheel.evaluate(w=>w.value),'02:59');
  await time.getByRole('button',{name:'Übernehmen',exact:true}).click();
  await page.waitForFunction(()=>wakeDemo.records.get(wakeDemo.config.alarm_id).settings.types.schultag.time==='02:59');
- assert.equal(await action('time').first().innerText(),'02:59');
- await action('time').first().click();await minutes.evaluate(el=>{el.scrollTop=0;el.dispatchEvent(new Event('scroll'));});await page.keyboard.press('Escape');assert.equal(await action('time').first().innerText(),'02:59');
+ assert.equal(await action('time').first().innerText(),'2:59');
+ await action('time').first().click();await minutes.evaluate(el=>{el.scrollTop=0;el.dispatchEvent(new Event('scroll'));});await page.keyboard.press('Escape');assert.equal(await action('time').first().innerText(),'2:59');
  await action('preset').filter({hasText:'06:15'}).click();await page.waitForFunction(()=>wakeDemo.records.get(wakeDemo.config.alarm_id).settings.types.schultag.time==='06:15');
  await action('enabled').first().click();const confirm=card().locator('#wake-confirm-dialog');assert(await confirm.isVisible());await page.keyboard.press('Escape');assert(await action('enabled').first().innerText()==='Ausschalten');
  await action('settings').click();const settings=card().locator('#wake-settings-dialog');
  const slider=settings.locator('#wake-volume');assert.equal(await slider.getAttribute('min'),'5');assert.equal(await slider.getAttribute('max'),'15');
- assert.equal(await settings.locator('select').count(),0);assert.equal(await settings.locator('[data-ui-multi]').count(),0);
- await slider.press('End');
+ assert.equal(await settings.locator('select').count(),1);assert(await settings.locator('#wake-sunrise-setting').isVisible());assert.equal(await settings.locator('[data-ui-multi]').count(),0);
+ await slider.press('End');await settings.locator('#wake-sunrise-setting').selectOption('15');
  await settings.locator('[data-action="preset-remove"][data-kind="schultag"]').first().click();
  await settings.getByRole('button',{name:'Speichern',exact:true}).click();await settings.waitFor({state:'hidden'});
  assert.equal(await page.evaluate(()=>wakeDemo.records.get(wakeDemo.config.alarm_id).settings.volume),15);
+ assert.equal(await page.evaluate(()=>wakeDemo.records.get(wakeDemo.config.alarm_id).settings.sunrise_minutes),15);
+ assert.equal(await page.evaluate(()=>wakeDemo.config.sunrise_minutes),5);
+ await action('settings').click();await settings.locator('#wake-sunrise-setting').selectOption('0');
+ await settings.getByRole('button',{name:'Abbrechen',exact:true}).click();
+ assert.equal(await page.evaluate(()=>wakeDemo.records.get(wakeDemo.config.alarm_id).settings.sunrise_minutes),15);
  assert.equal(await action('preset').filter({hasText:'05:55'}).count(),0);
  await page.evaluate(()=>wakeDemo.remoteChange(record=>record.settings.types.ferien.time='11:42'));
  await page.waitForFunction(()=>wakeDemo.card.shadowRoot.querySelector('[data-action="time"][data-kind="ferien"]').textContent==='11:42');

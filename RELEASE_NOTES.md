@@ -1,10 +1,10 @@
-# Wecker 1.1.1
+# Wecker 1.2.0
 
-- Korrektur für den visuellen Karteneditor: Die Konfiguration mit vorausgewähltem Musikkonto und leeren Gerätelisten funktioniert auch ohne die entfernte Liste alter Automationen. Fehlende optionale Gerätelisten und leere YAML-Werte werden abgefangen.
-- Jeder Release verwendet einen eigenen Pfad für das Kartenmodul. Alte Wecker-Ressourcen werden automatisch aktualisiert und doppelte Einträge bereinigt, damit kein alter Editor aus dem Cache geladen wird.
-- Integration, HACS-Eintrag und Dashboardkarte heißen jetzt **Wecker**. Der bisherige Standardtitel wird beim Start angepasst; selbst gewählte Titel bleiben erhalten.
-- Wecker-Icon aus dem HA UI Kit für helle und dunkle Darstellung, jeweils mit 256 und 512 Pixeln, direkt im installierten `brand/`-Ordner.
-- Die Einrichtung bleibt **Musik → Rollläden → Licht → Schultage → Prüfen**. Die Ablösung alter Wecker ist weiterhin entfernt.
-- Bestehende Kartenkennungen, Konten, Gerätezuordnungen, Weckzeiten und Musikauswahl bleiben erhalten. HA UI Kit 1.4.1 bleibt unverändert eingebunden.
+- Layout nach der bisherigen Weckerkarte: eigene Anzeige **Morgen ist …**, Weckmusik oben, Symbole vor Weckertyp/Uhrzeit/Musik, dezente Trennlinien und kompakte graue Schnellzeiten nebeneinander.
+- Die zusätzliche Überschrift mit der Boxenanzahl entfällt. Das Zahnrad steht neben der Morgen-Anzeige bereit. Zeiten bleiben antippbar und öffnen die Stunden-/Minutenräder.
+- **Sonnenaufgang am Schultag** liegt jetzt in den normalen Weckereinstellungen: Aus oder 5–30 Minuten Vorlauf. Er verwendet unverändert die beim Anlegen festgelegten Lampen und Zielhelligkeiten.
+- Bereits gespeicherte Sonnenaufgangszeiten werden übernommen. Ändern, Speichern und Abbrechen funktionieren ohne Neuanlage der Karte; auch ältere Clients behalten die gespeicherte Vorlaufzeit bei.
+- Morgen-Anzeige mit Home-Assistant-Zeitzone und tatsächlichen Schulfrei-Kalendereinträgen für den Folgetag. Fehler der Kalenderabfrage werden als Hinweis angezeigt.
+- HA UI Kit 1.4.1 und die Verbindung zum separat installierten Music Manager bleiben erhalten.
 
-In HACS aktualisieren, Home Assistant neu starten und die Seite vollständig neu laden. Vorhandene Karten und Weckzeiten bleiben erhalten.
+In HACS aktualisieren, Home Assistant neu starten und den Browser vollständig neu laden (Strg+F5). Vorhandene Karten, Geräte, Musik und Weckzeiten bleiben erhalten.

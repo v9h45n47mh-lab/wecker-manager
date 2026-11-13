@@ -1,4 +1,4 @@
-# Weckerkarte 1.1.1
+# Weckerkarte 1.2.0
 
 Die Karte bündelt Schultag, Wochenende und Ferien/schulfrei. Home Assistant führt die Wecker aus; ein geöffnetes Dashboard oder Handy wird nicht benötigt. Die Karte wird mit der eigenständigen Integration Wecker installiert und erscheint als **Wecker** im Kartenkatalog.
 
@@ -8,7 +8,7 @@ Die Einrichtung führt durch fünf überschaubare Schritte. Zurück/Weiter und d
 
 1. **Musik:** Weckername, genau ein Musikkonto und mindestens eine Sonos-Box wählen. Die Boxenauswahl öffnet einen eigenen durchsuchbaren Dialog.
 2. **Rollläden:** Optional Rollläden auswählen. Neben jedem gewählten Gerät öffnet das Stiftsymbol ausschließlich dessen Zielposition. Ohne Rollläden direkt weitergehen.
-3. **Licht:** Optional Lichter auswählen und jeweils einzeln Helligkeit, Farbtemperatur oder Farbe einstellen. Nicht unterstützte Funktionen werden nicht angeboten. Sanftes Licht vor dem Schultagswecker ist hier ebenfalls wählbar.
+3. **Licht:** Optional Lichter auswählen und jeweils einzeln Helligkeit, Farbtemperatur oder Farbe einstellen. Nicht unterstützte Funktionen werden nicht angeboten. Den Sonnenaufgang stellst du nach dem Anlegen über das Zahnrad ein.
 4. **Schultage:** Optional einen Kalender für schulfreie Tage wählen. Ohne Kalender gilt der Schultagswecker Mo–Fr; der Ferienwecker bleibt pausiert.
 5. **Prüfen:** Die Übersicht zeigt Konto, Boxen und alle Geräteeinstellungen. **Ändern** führt direkt zum passenden Schritt zurück. Erst **Wecker anlegen** speichert die feste Zuordnung. Danach das Dashboard speichern.
 
@@ -38,6 +38,7 @@ Neue unabhängige Wecker beginnen ausgeschaltet. Sie benötigen keine YAML-Helfe
 - Jeden Weckertyp getrennt ein-/ausschalten. Das Ausschalten des Schultagsweckers wird bestätigt.
 - Die ausgewählte Weckmusik gilt für alle drei Typen. Schultag verwendet Musik immer; Wochenende und Ferien besitzen eigene Musikschalter.
 - Über das Zahnrad null bis drei unterschiedliche Schnellzeiten pro Typ und 5–15 % Musiklautstärke für alle Boxen einstellen. **Speichern** übernimmt die Änderungen, **Abbrechen** verwirft sie.
+- Ebenfalls im Zahnrad: **Sonnenaufgang am Schultag** ausschalten oder 5, 10, 15, 20 bzw. 30 Minuten Vorlauf wählen. Vorhandene Vorlaufzeiten werden übernommen. Die fest zugeordneten dimmbaren Lampen beginnen bei 1 % und erreichen bis zur Schultagsweckzeit ihre beim Anlegen gewählte Zielhelligkeit. Konto, Lampen und deren Zielwerte bleiben fest zugeordnet; die Vorlaufzeit ist eine normale veränderbare Weckereinstellung.
 - Die Einstellungen und Zustände gelten für alle Geräte. Wenn zwei Geräte gleichzeitig ändern, wird eine veraltete Änderung zurückgewiesen, statt neuere Einstellungen zu überschreiben.
 
 ## Tageszuordnung und Betrieb
@@ -45,6 +46,8 @@ Neue unabhängige Wecker beginnen ausgeschaltet. Sie benötigen keine YAML-Helfe
 Schultag gilt montags bis freitags bei inaktivem Schulfrei-Kalender, Ferien montags bis freitags bei aktivem Kalender und Wochenende samstags/sonntags. Ohne Kalender gilt Schultag Mo–Fr; Ferien bleibt pausiert. Ist ein ausgewählter Kalender unbekannt oder nicht erreichbar, starten die Werktagswecker nicht. Lichtaufhellung über Mitternacht wird nicht vorgezogen, weil der aktuelle Kalenderzustand den Folgetag nicht zuverlässig beschreibt.
 
 Die Zeit folgt der in Home Assistant eingestellten Zeitzone. Pro lokalem Tag, Typ und Phase wird höchstens einmal ausgeführt, auch bei einer zurückgestellten Uhr oder einem Neustart innerhalb derselben Minute. Ein während eines kompletten Ausfalls verpasster Wecker wird nicht nachgeholt. Musik wird nach fünf Minuten gestoppt; ein beim Neustart überfälliger Stopp erfolgt beim nächsten Minutentakt.
+
+Die separate Anzeige **Morgen ist …** verwendet ebenfalls die Home-Assistant-Zeitzone. Am Wochenende zeigt sie Wochenende. An Werktagen fragt sie die Ereignisse des gewählten Schulfrei-Kalenders für morgen ab und berücksichtigt exklusive Enddaten ganztägiger Termine. Bei fehlender Kalenderverbindung zeigt sie einen entsprechenden Hinweis. Die Anzeige wird spätestens nach fünf Minuten aktualisiert.
 
 Ein fehlgeschlagenes Ausgabegerät verhindert die übrigen Weckaktionen nicht. Die Karte zeigt Ausführungsfehler. Benutzer- und Geräteberechtigungen sowie die Kontozuordnung werden bei jeder Ausführung erneut geprüft. Wird das festgelegte Musikkonto außerhalb der Karte verändert, pausiert die Karte bis zur Neuanlage.
 
