@@ -17,7 +17,7 @@ from homeassistant.helpers.event import async_track_time_change
 from homeassistant.util import dt as dt_util
 
 from ..music_manager.access import AccessError, account_for, checked_account, sonos_uid, validate_uri, value
-from ..music_manager.alarms import ALARM_ID, alarm_owner, apple_target, selection_from
+from ..music_manager.alarms import ALARM_ID, SELECTION_KEY, alarm_owner, apple_target, selection_from
 from ..music_manager.const import CONF_ACCOUNTS, CONF_ALARMS
 from .const import DOMAIN, MUSIC_DOMAIN, VERSION
 from .day_types import legacy_days, day_definitions, validate_days, settings_for_days, calendar_mode
@@ -740,9 +740,20 @@ async def play_speaker(hass, entry, record, owner, source):
     from homeassistant.components.frontend.storage import async_user_store
     store = await async_user_store(hass, owner.id)
     selected = selection_from(store, binding["alarm_id"])
+    # Read the radio record directly as well: older supported Music Manager
+    # versions retain only Apple fields in selection_from().
+    choices = store.data.get(SELECTION_KEY, {})
+    raw = choices.get(binding["alarm_id"]) if isinstance(choices, dict) else None
+    radio = None
+    if isinstance(raw, dict) and raw.get("kind") == "radio":
+        uri, title = raw.get("uri"), raw.get("title")
+        if (not isinstance(uri, str) or not re.fullmatch(r"media-source://radio_browser/[a-zA-Z0-9_-]{1,128}", uri)
+            or raw.get("media_content_id", uri) != uri or not isinstance(title, str) or not title.strip()):
+            raise AccessError("invalid_favorite", "Bitte den gespeicherten Radiosender neu auswählen.")
+        radio = {"media_content_id": uri, "media_content_type": "music", "extra": {"title": title[:500]}}
     context = Context(user_id=owner.id)
     mass = account = target = None
-    if selected is not None:
+    if selected is not None and radio is None:
         mass, account, target = await apple_target(hass, music_entry_for(hass), {"source_entity": source}, owner)
         uri = validate_uri(selected.get("uri"), account["provider_id"])
         if selected.get("media_type") not in ("track", "album", "playlist") or not uri.startswith(f"{account['provider_id']}://{selected['media_type']}/"):
@@ -751,7 +762,9 @@ async def play_speaker(hass, entry, record, owner, source):
         if not player or not value(player, "available", False):
             raise AccessError("player_unavailable", "Eine Musikbox ist in Music Assistant nicht erreichbar.")
     await hass.services.async_call("media_player", "volume_set", {"entity_id": source, "volume_level": record["settings"]["volume"] / 100}, blocking=True, context=context)
-    if selected is None:
+    if radio is not None:
+        await hass.services.async_call("media_player", "play_media", {"entity_id": source, **radio}, blocking=True, context=context)
+    elif selected is None:
         await hass.services.async_call("media_player", "media_play", {"entity_id": source}, blocking=True, context=context)
     else:
         await mass.player_queues.play_media(queue_id=target.unique_id, media=uri, option="replace", user=account["ma_user_id"])

@@ -65,7 +65,7 @@ let browser;
  await action('settings').click();const settings=card().locator('#wake-settings-dialog');
  const slider=settings.locator('#wake-volume');assert.equal(await slider.getAttribute('min'),'5');assert.equal(await slider.getAttribute('max'),'15');
  assert.equal(await settings.locator('select').count(),3);assert(await settings.locator('#wake-sunrise-setting').isVisible());assert.equal(await settings.locator('[data-ui-multi]').count(),0);
- assert(await settings.evaluate(el=>el.getBoundingClientRect().width<=480));assert.match(await settings.locator('.version-info').innerText(),/Wecker 1\.5\.0/);
+ assert(await settings.evaluate(el=>el.getBoundingClientRect().width<=480));assert.match(await settings.locator('.version-info').innerText(),/Wecker 1\.6\.0/);
  await slider.press('End');await settings.locator('#wake-sunrise-setting').selectOption('15');
  await settings.locator('[data-action="preset-remove"][data-kind="schultag"]').first().click();
  await settings.getByRole('button',{name:'Speichern',exact:true}).click();await settings.waitFor({state:'hidden'});
