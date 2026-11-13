@@ -2,12 +2,15 @@
 
 ![Wecker](custom_components/wecker_manager/brand/icon.png)
 
-Home-Assistant-Integration mit vollständig bearbeitbaren Weckerkarten und gemeinsamen Tagestypen. Version **1.4.0**, unverändertes **HA UI Kit 1.4.1**.
+Home-Assistant-Integration mit vollständig bearbeitbaren Weckerkarten und gemeinsamen Tagestypen. Version **1.5.0**, unverändertes **HA UI Kit 1.4.1**.
 
 ## Funktionen
 
 - Eigene Tagestypen mit Namen, Symbolen, Wochentagen und optional einem Kalender. Im Setup festlegen: freie oder gebuchte Kalendertage; nur ganztägige Termine zählen.
 - Einen Tagestyp wie **Schultag** bei Maximilian anlegen und bei Paul aus dem gemeinsamen Katalog verwenden. Namen, Symbole, Wochentage und Kalenderregeln werden gemeinsam gepflegt. Uhrzeiten, Aktivierungen, Musikverhalten und Ausschaltbestätigungen bleiben je Karte getrennt.
+- Zentrale Verwaltung unter **Zahnrad → Tagestypen verwalten**: Anlegen, gemeinsame Regeln ändern, Verwendung sehen und unbenutzte Typen löschen. Wiederholtes Übernehmen fügt keinen zweiten Wecker hinzu.
+- Im Setup unter **Licht** passende Hue-Szenen auswählen. Nur Szenen, die keine zusätzlichen Lampen schalten, werden angeboten. Helligkeit und Farben kommen dann aus der Szene; weitere gewählte Lampen bleiben individuell einstellbar.
+- Zusätzliche kompakte **Wecker-Status**-Karte: Name, Tagessymbole und An/Aus. Zum Beispiel Maximilian und Paul nebeneinander: [Anleitung und YAML](docs/STATUSKARTE.md).
 - Ein-/Ausschalten mit optionaler Bestätigung, Stunden-/Minutenräder und bis zu drei Schnellzeiten je Typ. Änderungen werden zentral gespeichert.
 - **Blaue Tagessymbole:** Der aktivierte Wecker ist innerhalb der nächsten 24 Stunden fällig. **Graue Tagessymbole:** Keine passende Ausführung in diesem Zeitraum. Kalenderregeln, Wochentage, erledigte Ausführungen und Zeitumstellungen werden berücksichtigt. Es gibt keine dritte Statusfarbe und keine Tagesüberschrift.
 - Unter dem Zahnrad: Lautstärke 5–15 %, Schnellzeiten und Sonnenaufgang je Tagestyp. Der schmale Dialog zeigt die Versionsnummer.

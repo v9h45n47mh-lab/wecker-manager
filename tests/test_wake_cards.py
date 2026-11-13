@@ -581,3 +581,106 @@ class WakeCardTests(IsolatedAsyncioTestCase):
                 await self.wake.update_card(hass,owner,c['alarm_id'],c['card_id'],settings,data['revision'])
                 result=await self.wake.upcoming_info(hass,owner,c['alarm_id'],c['card_id'])
                 self.assertEqual([result['types'][key]['active'] for key in ['a','b']],expected)
+
+    def template(self, **changes):
+        return {key:value for key,value in self.custom_day(**changes).items() if key in ('id','name','icon','weekdays','calendar_entity','calendar_mode')}
+
+    async def test_template_management_crud_propagates_shared_rules_and_preserves_local_settings(self):
+        hass,entry,owner,admin,other,c,_,_=self.fixture()
+        raw=self.template(calendar_entity='',calendar_mode='no_event')
+        with self.assertRaises(self.wake.AccessError):await self.wake.save_day_template(hass,owner,raw,0)
+        saved=await self.wake.save_day_template(hass,admin,raw,0);template=saved['template']
+        c['days']=[{**self.custom_day(calendar_entity='',calendar_mode='no_event'), 'template_id':template['id'],'template_revision':template['revision']}]
+        first=await self.activate(hass,admin,c,kind='arbeit',time='07:23')
+        self.add_other_account(hass,other)
+        second_c={**c,'alarm_id':'paul_alarm','card_id':'paul_card','owner_id':other.id,'days':[{**first['days'][0],'music_mode':'switchable','confirm_disable':False}]}
+        second=await self.activate(hass,admin,second_c,kind='arbeit',time='08:12')
+        before={key:deepcopy(record['settings']) for key,record in entry.options['wake_cards'].items()}
+        updated=await self.wake.save_day_template(hass,admin,{**raw,'name':'Frühdienst','weekdays':[1,3]},template['revision'])
+        for record in entry.options['wake_cards'].values():
+            self.assertEqual(record['days'][0]['name'],'Frühdienst');self.assertEqual(record['days'][0]['weekdays'],[1,3]);self.assertEqual(record['settings'],before[record['binding']['alarm_id']])
+        self.assertFalse(entry.options['wake_cards']['paul_alarm']['days'][0]['confirm_disable'])
+        with self.assertRaises(self.wake.AccessError):await self.wake.save_day_template(hass,admin,raw,template['revision'])
+        with self.assertRaises(self.wake.AccessError) as error:await self.wake.delete_day_template(hass,admin,template['id'],updated['template']['revision'])
+        self.assertEqual(error.exception.code,'template_in_use')
+        unused=await self.wake.save_day_template(hass,admin,self.template(id='unused',name='Spätdienst',calendar_entity=''),0)
+        with self.assertRaises(self.wake.AccessError):await self.wake.delete_day_template(hass,other,'unused',1)
+        await self.wake.delete_day_template(hass,admin,'unused',unused['template']['revision']);self.assertNotIn('unused',entry.options['day_templates'])
+
+    async def test_global_manager_calendar_change_checks_every_owner_before_writing(self):
+        hass,entry,owner,admin,other,c,states,_=self.fixture()
+        c['days']=[self.custom_day(calendar_entity='')];first=await self.wake.create_card(hass,admin,c);day=first['days'][0]
+        self.add_other_account(hass,other);await self.wake.create_card(hass,admin,{**c,'alarm_id':'paul','card_id':'paul','owner_id':other.id,'days':first['days']})
+        states['calendar.private']=NS(entity_id='calendar.private',state='off',attributes={});other.permissions=NS(check_entity=lambda entity_id,policy:entity_id!='calendar.private')
+        before=deepcopy(entry.options)
+        with self.assertRaises(self.wake.AccessError):await self.wake.save_day_template(hass,admin,self.template(id=day['template_id'],calendar_entity='calendar.private'),day['template_revision'])
+        self.assertEqual(entry.options,before)
+
+    async def test_reuse_after_rename_and_legacy_duplicate_migration_are_idempotent(self):
+        hass,entry,owner,admin,_,c,_,_=self.fixture()
+        c['days']=[self.custom_day(calendar_entity='',calendar_mode='event')];first=await self.activate(hass,admin,c,kind='arbeit',time='07:23');day=first['days'][0]
+        raw=self.template(id=day['template_id'],name='Frühdienst',calendar_entity='',calendar_mode='no_event')
+        updated=await self.wake.save_day_template(hass,admin,raw,day['template_revision'])
+        second=await self.wake.create_card(hass,admin,{**c,'card_id':'second','alarm_id':'second','days':[self.custom_day(id='local',name='Frühdienst',calendar_entity='',calendar_mode='event')]})
+        self.assertEqual(second['days'][0]['template_id'],day['template_id']);self.assertEqual(len(entry.options['day_templates']),1)
+        duplicate=await self.wake.save_day_template(hass,admin,{**raw,'id':'another_id'},0);self.assertTrue(duplicate['already_exists'])
+        alias={**updated['template'],'id':'old_duplicate','calendar_mode':'event'};entry.options['day_templates']['old_duplicate']=alias
+        entry.options['wake_cards']['second']['days'][0]['template_id']='old_duplicate'
+        settings=deepcopy(entry.options['wake_cards']['second']['settings'])
+        catalog=await self.wake.catalog(hass,admin);self.assertEqual(len(catalog['shared_days']),1);self.assertEqual(catalog['shared_days'][0]['uses'],2)
+        self.assertEqual(entry.options['wake_cards']['second']['settings'],settings);self.assertEqual(entry.options['wake_cards'][c['alarm_id']]['settings']['types']['arbeit']['time'],'07:23')
+        before=deepcopy(entry.options);await self.wake.catalog(hass,admin);self.assertEqual(entry.options,before)
+        invalid=[self.custom_day(id='one'),self.custom_day(id='two',name=' Arbeit ')];
+        with self.assertRaises(self.wake.AccessError):self.wake.validate_days(invalid)
+
+    def add_hue_scene(self,hass,states,scene_id='scene.relax',members=('light.one',)):
+        hass.registry.entities[scene_id]=NS(platform='hue',unique_id=scene_id,disabled_by=None,device_id='room',config_entry_id='hue')
+        states[scene_id]=NS(entity_id=scene_id,state='unknown',attributes={'friendly_name':'Entspannen','entity_id':list(members)})
+
+    async def test_hue_catalog_and_binding_exclude_extra_lamps_non_hue_and_denied_scenes(self):
+        hass,entry,owner,admin,_,c,states,_=self.fixture();self.add_hue_scene(hass,states)
+        self.add_hue_scene(hass,states,'scene.extra',('light.one','light.unselected'))
+        states['scene.fake']=NS(entity_id='scene.fake',state='unknown',attributes={'entity_id':['light.one']})
+        catalog=await self.wake.catalog(hass,admin,owner.id);self.assertEqual([scene['id'] for scene in catalog['hue_scenes']],['scene.relax'])
+        with self.assertRaises(self.wake.AccessError):await self.wake.create_card(hass,admin,{**c,'hue_scene':'scene.extra'})
+        self.assertNotIn('wake_cards',entry.options)
+        owner.permissions=NS(check_entity=lambda entity_id,policy:entity_id!='scene.relax')
+        self.assertFalse((await self.wake.catalog(hass,admin,owner.id))['hue_scenes'])
+        with self.assertRaises(self.wake.AccessError):await self.wake.create_card(hass,admin,{**c,'hue_scene':'scene.relax'})
+
+    async def test_hue_group_scope_and_disabled_group_cached_membership(self):
+        hass,_,owner,admin,_,c,states,_=self.fixture();self.add_hue_scene(hass,states)
+        states['light.group']=NS(entity_id='light.group',state='off',attributes={'is_hue_group':True,'entity_id':['light.one','light.two']})
+        hass.registry.entities['light.group']=NS(platform='hue',device_id='room',config_entry_id='hue',disabled_by=None)
+        group=[{'entity_id':'light.group'}]
+        self.assertIsNone(self.wake.hue_scenes.covered_lights(hass,group,'scene.relax'))  # Partial overlap would override the scene.
+        states['scene.relax'].attributes.pop('entity_id')
+        self.assertEqual(self.wake.hue_scenes.covered_lights(hass,group,'scene.relax'),{'light.group'})
+        states.pop('light.group')
+        api=NS(scenes=NS(get_group=Mock(return_value=NS(services=[NS(rtype='grouped_light',rid='group')]))),groups=NS(grouped_light=NS(get_lights=Mock(return_value=[NS(id='one'),NS(id='two')]))))
+        hass.config_entries.async_get_entry=Mock(return_value=NS(runtime_data=NS(api=api)))
+        hass.registry.async_get_entity_id=lambda domain,platform,unique_id:'light.'+unique_id
+        self.assertEqual(self.wake.hue_scenes.scene_members(hass,'scene.relax'),{'light.one','light.two'})
+        hass.registry.async_get_entity_id=lambda *args:None
+        self.assertFalse(self.wake.hue_scenes.scene_members(hass,'scene.relax'))
+
+    async def test_hue_wake_applies_scene_once_and_preserves_individual_uncovered_lamp(self):
+        hass,entry,owner,admin,_,c,states,_=self.fixture();self.add_hue_scene(hass,states)
+        await self.wake.create_card(hass,admin,{**c,'hue_scene':'scene.relax'});record=entry.options['wake_cards'][c['alarm_id']]
+        await self.wake.execute(hass,entry,record,owner,'wochenende','wake')
+        calls=[(call.args[0],call.args[1],call.args[2]) for call in hass.services.async_call.await_args_list]
+        self.assertEqual(calls.count(('scene','turn_on',{'entity_id':'scene.relax'})),1)
+        self.assertFalse(any(domain=='light' and data['entity_id']=='light.one' for domain,_,data in calls))
+        self.assertIn(('light','turn_on',{'entity_id':'light.two','brightness_pct':60,'rgb_color':[250,120,30]}),calls)
+
+    async def test_hue_sunrise_uses_scene_transition_and_changed_scene_scope_fails_closed(self):
+        hass,entry,owner,admin,_,c,states,_=self.fixture();self.add_hue_scene(hass,states)
+        await self.wake.create_card(hass,admin,{**c,'hue_scene':'scene.relax'});record=entry.options['wake_cards'][c['alarm_id']];record['settings']['types']['schultag']['sunrise_minutes']=10
+        with patch.object(self.wake.asyncio,'sleep',new=AsyncMock()):await self.wake.execute(hass,entry,record,owner,'schultag','sunrise')
+        scene_calls=[call.args[2] for call in hass.services.async_call.await_args_list if call.args[0]=='scene'];self.assertEqual(scene_calls,[{'entity_id':'scene.relax','transition':599}])
+        self.assertTrue(any(call.args[2]=={'entity_id':'light.one','brightness_pct':1} for call in hass.services.async_call.await_args_list))
+        hass.services.async_call.reset_mock();states['scene.relax'].attributes['entity_id'].append('light.unselected')
+        with self.assertRaises(self.wake.AccessError) as error:await self.wake.execute(hass,entry,record,owner,'wochenende','wake')
+        self.assertFalse(any(call.args[0]=='scene' or call.args[2].get('entity_id')=='light.unselected' for call in hass.services.async_call.await_args_list))
+        self.assertEqual({call.args[2]['entity_id'] for call in hass.services.async_call.await_args_list if call.args[0]=='light'},{'light.one','light.two'})
+        self.assertIn('fehlgeschlagen',str(error.exception))

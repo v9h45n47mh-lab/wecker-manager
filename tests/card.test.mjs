@@ -7,7 +7,7 @@ import {parseHTML} from 'linkedom';
 const bundle=await readFile(new URL('../dist/wecker-manager-card.js',import.meta.url),'utf8');
 const clone=value=>JSON.parse(JSON.stringify(value));
 const flush=async()=>{for(let i=0;i<12;i++)await new Promise(resolve=>setImmediate(resolve));};
-function fixture({days,settings:override,header,upcoming={schultag:{active:true,label:'13.11. 06:12'},wochenende:{active:false},ferien:{active:false}}}={}){
+function fixture({days,settings:override,header,status=false,upcoming={schultag:{active:true,label:'13.11. 06:12'},wochenende:{active:false},ferien:{active:false}}}={}){
  const {window}=parseHTML('<!doctype html><html><body></body></html>'),{document}=window;
  window.HTMLElement.prototype.showModal=function(){this.open=true;};
  window.HTMLElement.prototype.close=function(){this.open=false;this.dispatchEvent(new window.Event('close'));};
@@ -31,7 +31,7 @@ function fixture({days,settings:override,header,upcoming={schultag:{active:true,
   if(msg.action==='set_enabled'){if(fail)throw {code:'save_failed',message:'Speichern fehlgeschlagen'};record.settings.types[msg.kind].enabled=msg.enabled;record.revision++;for(const callback of listeners)callback({data:{alarm_id:'school'}});return clone(record);}
   throw Error('Unbekannte Anfrage');
  }});
- const card=document.createElement('wecker-manager-card');card.setConfig(config);document.body.append(card);card.hass=hass();
+ const card=document.createElement(status?'wecker-manager-status-card':'wecker-manager-card');card.setConfig({...config,...(status?{name:'Maximilian'}:{})});document.body.append(card);card.hass=hass();
  const click=(action,selector='')=>{const button=card.shadowRoot.querySelector(`[data-action="${action}"]${selector}`);assert(button,action+' exists');assert(!button.disabled);button.click();};
  return {card,config,record,window,document,calls,listeners,click,set fail(v){fail=v},switchUser(v){user=v;card.hass=hass()},remoteChange(change){change(record);record.revision++;for(const callback of listeners)callback({data:{alarm_id:'school'}});}};
 }
@@ -130,4 +130,13 @@ test('only enabled types returned in the next 24 hours are blue; all others are 
  assert.equal(icon('wochenende').dataset.nextActive,'false');assert.equal(icon('ferien').dataset.nextActive,'false');
  e.click('enabled','[data-kind="schultag"]');e.click('confirm-disable');await flush();assert.equal(icon('schultag').dataset.nextActive,'false');
  assert.equal(e.card.shadowRoot.querySelector('[data-wake-kind].today,[data-wake-kind].tomorrow'),null);e.card.remove();
+});
+
+test('compact status card follows the same alarms live and never creates a music row or write controls',async()=>{
+ const e=fixture({status:true});await flush();
+ assert.equal(e.card.shadowRoot.querySelector('#status-title').textContent,'Maximilian');assert.equal(e.card.shadowRoot.querySelectorAll('.status-line').length,3);
+ assert.equal(e.card.shadowRoot.querySelectorAll('button,music-manager-alarm-row').length,0);assert(!e.calls.some(call=>call.type==='music_manager/alarm'));
+ e.remoteChange(record=>record.settings.types.schultag.enabled=false);await flush();assert.match(e.card.shadowRoot.querySelector('.status-line').getAttribute('aria-label'),/Schultag · Aus/);
+ assert.equal(e.card.shadowRoot.querySelector('.status-dot').classList.contains('on'),false);assert(!e.calls.some(call=>['create','update','set_enabled'].includes(call.action)));
+ e.switchUser('paul');await flush();assert.equal(e.card.shadowRoot.querySelectorAll('.status-line').length,0);e.card.remove();assert.equal(e.listeners.size,0);
 });

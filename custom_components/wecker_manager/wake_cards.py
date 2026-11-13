@@ -22,6 +22,7 @@ from ..music_manager.const import CONF_ACCOUNTS, CONF_ALARMS
 from .const import DOMAIN, MUSIC_DOMAIN, VERSION
 from .day_types import legacy_days, day_definitions, validate_days, settings_for_days, calendar_mode
 from . import shared_days
+from . import hue_scenes
 from ..music_manager.helpers import music_assistant_client
 
 KEY = "wake_cards"
@@ -84,7 +85,19 @@ def allowed_entity(hass, owner, caller, entity_id, domain, *, control=True):
 
 
 def binding_signature(binding):
-    return {key: binding.get(key) for key in ("card_id", "alarm_id", "owner_id", "speakers", "covers", "lights", "calendar_entity", "sunrise_minutes")}
+    return {**{key: binding.get(key) for key in ("card_id", "alarm_id", "owner_id", "speakers", "covers", "lights", "calendar_entity", "sunrise_minutes")}, "hue_scene": binding.get("hue_scene", "")}
+
+
+def checked_hue_scene(hass, owner, caller, scene_id, lights):
+    allowed_entity(hass, owner, caller, scene_id, "scene")
+    covered = hue_scenes.covered_lights(hass, lights, scene_id)
+    if covered is None:
+        raise AccessError("invalid_scene", "Die Hue-Szene passt nicht vollständig zu den gewählten Lampen. Bitte die Lichtauswahl prüfen.")
+    for item in lights:
+        allowed_entity(hass, owner, caller, item["entity_id"], "light")
+    for member in hue_scenes.scene_members(hass, scene_id):
+        allowed_entity(hass, owner, caller, member, "light")
+    return covered
 
 
 async def checked_record(hass, caller, alarm_id, card_id):
@@ -139,9 +152,12 @@ def save_record(hass, entry, alarm_id, record, *, notify=True):
 
 
 def commit_shared(hass, entry, templates, cards, changed):
+    templates_changed = templates != entry.options.get(shared_days.LIBRARY, {})
     hass.config_entries.async_update_entry(entry, options={**entry.options, shared_days.LIBRARY: templates, KEY: cards})
     for alarm_id in changed:
         hass.bus.async_fire(EVENT, {"alarm_id": alarm_id})
+    if templates_changed:
+        hass.bus.async_fire(EVENT, {"day_templates": True})
 
 
 async def stage_shared(hass, caller, entry, alarm_id, record, days):
@@ -149,6 +165,7 @@ async def stage_shared(hass, caller, entry, alarm_id, record, days):
     templates, cards, changed = shared_days.apply(templates, cards, alarm_id, record, days)
     changed.update(migrated)
     for key in changed:
+        validate_days(day_definitions(cards[key]))
         owner = await hass.auth.async_get_user(cards[key]["binding"]["owner_id"])
         if owner and owner.is_active:
             for day in day_definitions(cards[key]):
@@ -223,26 +240,102 @@ async def catalog(hass, caller, owner_id=None):
         except AccessError:
             continue
         devices[domains[domain]].append({"id": state.entity_id, "label": state.attributes.get("friendly_name", state.entity_id),
-                                       "description": state.entity_id, "attributes": {k: state.attributes[k] for k in ("supported_color_modes", "min_color_temp_kelvin", "max_color_temp_kelvin", "supported_features") if k in state.attributes}})
+                                       "description": state.entity_id, "attributes": {k: list(state.attributes[k]) if isinstance(state.attributes[k], set) else state.attributes[k] for k in ("supported_color_modes", "min_color_temp_kelvin", "max_color_temp_kelvin", "supported_features", "entity_id", "is_hue_group") if k in state.attributes}})
     for items in devices.values():
         items.sort(key=lambda item: item["label"].casefold())
     templates, cards, changed = shared_days.migrate(entry.options)
-    if changed:
+    if changed or templates != entry.options.get(shared_days.LIBRARY, {}):
         # Upgrade is also run at integration startup; this covers old imports.
         async with runtime(hass)["lock"]:
             templates, cards, changed = shared_days.migrate(entry.options)
-            if changed:
+            if changed or templates != entry.options.get(shared_days.LIBRARY, {}):
                 commit_shared(hass, entry, templates, cards, changed)
     calendars = {item["id"] for item in devices["calendars"]}
     available_days = [{**deepcopy(item), "uses": sum(any(d.get("template_id") == item["id"] for d in day_definitions(record)) for record in cards.values())}
                       for item in templates.values() if not item["calendar_entity"] or item["calendar_entity"] in calendars]
     available_days.sort(key=lambda item: item["name"].casefold())
-    return {"accounts": accounts, "shared_days": available_days, **devices}
+    allowed_lights = set().union(*(hue_scenes.light_members(hass, item["id"]) for item in devices["lights"])) if devices["lights"] else set()
+    scenes = []
+    for state in hass.states.async_all():
+        if not state.entity_id.startswith("scene."):
+            continue
+        members = hue_scenes.scene_members(hass, state.entity_id)
+        if not members or not members <= allowed_lights:
+            continue
+        try:
+            allowed_entity(hass, owner, caller, state.entity_id, "scene")
+            for member in members:
+                allowed_entity(hass, owner, caller, member, "light")
+        except AccessError:
+            continue
+        scenes.append({"id": state.entity_id, "label": state.attributes.get("friendly_name", state.entity_id), "members": sorted(members)})
+    scenes.sort(key=lambda item: item["label"].casefold())
+    return {"accounts": accounts, "shared_days": available_days, "hue_scenes": scenes, **devices}
+
+
+async def save_day_template(hass, caller, raw, revision):
+    require_admin(caller)
+    fields = {"id", "name", "icon", "weekdays", "calendar_entity", "calendar_mode"}
+    if not isinstance(raw, dict) or set(raw) != fields or type(revision) is not int or revision < 0:
+        raise AccessError("invalid_config", "Der gemeinsame Tagestyp ist unvollständig.")
+    day = validate_days([{**raw, "music_mode": "switchable", "confirm_disable": False}])[0]
+    entry = entry_for(hass)
+    async with runtime(hass)["lock"]:
+        templates, cards, migrated = shared_days.migrate(entry.options)
+        previous = templates.get(day["id"])
+        if (previous and revision != previous["revision"]) or (not previous and revision != 0):
+            raise AccessError("conflict", "Der Tagestyp wurde zwischenzeitlich geändert. Bitte erneut laden.")
+        if day["calendar_entity"]:
+            allowed_entity(hass, caller, caller, day["calendar_entity"], "calendar", control=False)
+        matching = next((item for item in templates.values() if shared_days.signature(item) == shared_days.signature(day)), None)
+        if not previous and matching:
+            if migrated or templates != entry.options.get(shared_days.LIBRARY, {}):
+                commit_shared(hass, entry, templates, cards, migrated)
+            return {"saved": True, "template": deepcopy(matching), "already_exists": True}
+        template = {"id": day["id"], **shared_days.common(day), "revision": revision + 1}
+        templates[day["id"]] = template
+        changed = set(migrated)
+        for alarm_id, record in cards.items():
+            days = day_definitions(record)
+            affected = False
+            for item in days:
+                if item.get("template_id") == day["id"]:
+                    item.update(shared_days.common(template), template_revision=template["revision"])
+                    affected = True
+            if affected:
+                validate_days(days)
+                owner = await hass.auth.async_get_user(record["binding"]["owner_id"])
+                if owner and owner.is_active and day["calendar_entity"]:
+                    allowed_entity(hass, owner, caller, day["calendar_entity"], "calendar", control=False)
+                record.update(days=days, settings=settings_for_days(record, days), revision=record["revision"] + 1)
+                changed.add(alarm_id)
+        # An edited template can now equal another one; merge references, not alarms.
+        templates, cards, merged = shared_days.migrate({shared_days.LIBRARY: templates, KEY: cards})
+        changed.update(merged)
+        result = next(item for item in templates.values() if shared_days.signature(item) == shared_days.signature(template))
+        commit_shared(hass, entry, templates, cards, changed)
+        return {"saved": True, "template": deepcopy(result)}
+
+
+async def delete_day_template(hass, caller, template_id, revision):
+    require_admin(caller)
+    identifier(template_id)
+    entry = entry_for(hass)
+    async with runtime(hass)["lock"]:
+        templates, cards, migrated = shared_days.migrate(entry.options)
+        item = templates.get(template_id)
+        if not item or type(revision) is not int or item["revision"] != revision:
+            raise AccessError("conflict", "Der Tagestyp wurde zwischenzeitlich geändert. Bitte erneut laden.")
+        if any(any(day.get("template_id") == template_id for day in day_definitions(record)) for record in cards.values()):
+            raise AccessError("template_in_use", "Dieser Tagestyp wird noch verwendet. Entferne ihn zuerst aus den betreffenden Weckerkarten.")
+        del templates[template_id]
+        commit_shared(hass, entry, templates, cards, migrated)
+        return {"deleted": True}
 
 
 async def create_card(hass, caller, config, *, reconfigure=False, revision=None, confirm_disable=None):
     require_admin(caller)
-    if not isinstance(config, dict) or set(config) - {"card_id", "alarm_id", "owner_id", "speakers", "covers", "lights", "calendar_entity", "sunrise_minutes", "replace_automation", "days", "name"}:
+    if not isinstance(config, dict) or set(config) - {"card_id", "alarm_id", "owner_id", "speakers", "covers", "lights", "calendar_entity", "sunrise_minutes", "replace_automation", "days", "name", "hue_scene"}:
         raise AccessError("invalid_config", "Die Kartenkonfiguration ist ungültig.")
     card_id, alarm_id = identifier(config.get("card_id")), identifier(config.get("alarm_id"))
     entry = entry_for(hass)
@@ -310,6 +403,12 @@ async def create_card(hass, caller, config, *, reconfigure=False, revision=None,
         sunrise = integer(config.get("sunrise_minutes", 0), 0, 30)
         binding = {"card_id": card_id, "alarm_id": alarm_id, "owner_id": owner.id, "speakers": list(speakers),
                    "covers": checked_covers, "lights": checked_lights, "calendar_entity": calendar, "sunrise_minutes": sunrise}
+        scene_id = config.get("hue_scene", "")
+        if not isinstance(scene_id, str):
+            raise AccessError("invalid_scene", "Bitte eine gültige Hue-Szene wählen.")
+        if scene_id:
+            checked_hue_scene(hass, owner, caller, scene_id, checked_lights)
+            binding["hue_scene"] = scene_id
         # A recreated card replaces the old card for this alarm ID, so only one executes.
         settings = deepcopy(existing["settings"]) if existing else default_settings(hass, alarm_id)
         settings["sunrise_minutes"] = (sunrise_minutes(existing) if existing else sunrise) if checked_lights else 0
@@ -540,7 +639,7 @@ async def upcoming_info(hass, caller, alarm_id, card_id):
 
 @websocket_api.websocket_command({
     vol.Required("type"): "wecker_manager/card",
-    vol.Required("action"): vol.In(["catalog", "get", "create", "configure", "update", "set_enabled", "day_info", "upcoming", "configure_days"]),
+    vol.Required("action"): vol.In(["catalog", "get", "create", "configure", "update", "set_enabled", "day_info", "upcoming", "configure_days", "save_day_template", "delete_day_template"]),
     vol.Optional("alarm_id"): str,
     vol.Optional("card_id"): str,
     vol.Optional("owner_id"): str,
@@ -552,6 +651,8 @@ async def upcoming_info(hass, caller, alarm_id, card_id):
     vol.Optional("kind"): str,
     vol.Optional("enabled"): bool,
     vol.Optional("day_offset"): int,
+    vol.Optional("day_template"): dict,
+    vol.Optional("template_id"): str,
 })
 @websocket_api.async_response
 async def websocket_wake_card(hass, connection, msg):
@@ -560,6 +661,10 @@ async def websocket_wake_card(hass, connection, msg):
             action = msg["action"]
             if action == "catalog":
                 result = await catalog(hass, connection.user, msg.get("owner_id"))
+            elif action == "save_day_template":
+                result = await save_day_template(hass, connection.user, msg.get("day_template"), msg.get("revision"))
+            elif action == "delete_day_template":
+                result = await delete_day_template(hass, connection.user, msg.get("template_id"), msg.get("revision"))
             elif action == "day_info":
                 result = await tomorrow_info(hass, connection.user, msg.get("alarm_id"), msg.get("card_id"), msg.get("day_offset", 1))
             elif action == "upcoming":
@@ -656,6 +761,8 @@ async def execute(hass, entry, record, owner, kind, phase):
     binding = record["binding"]
     context = Context(user_id=owner.id)
     tasks = []
+    scene_id = binding.get("hue_scene", "")
+    covered = hue_scenes.covered_lights(hass, binding["lights"], scene_id) if scene_id else set()
 
     async def light_action(item):
         state = allowed_entity(hass, owner, None, item["entity_id"], "light")
@@ -680,8 +787,25 @@ async def execute(hass, entry, record, owner, kind, phase):
         allowed_entity(hass, owner, None, item["entity_id"], "cover")
         await hass.services.async_call("cover", "set_cover_position", item, blocking=True, context=context)
 
+    async def scene_action():
+        checked = checked_hue_scene(hass, owner, None, scene_id, binding["lights"])
+        data = {"entity_id": scene_id}
+        if phase == "sunrise":
+            for item in binding["lights"]:
+                if item["entity_id"] in checked:
+                    state = allowed_entity(hass, owner, None, item["entity_id"], "light")
+                    if set(state.attributes.get("supported_color_modes", [])) - {"onoff", "unknown"}:
+                        await hass.services.async_call("light", "turn_on", {"entity_id": item["entity_id"], "brightness_pct": 1}, blocking=True, context=context)
+            await asyncio.sleep(1)
+            checked_hue_scene(hass, owner, None, scene_id, binding["lights"])
+            data["transition"] = sunrise_minutes(record, kind) * 60 - 1
+        await hass.services.async_call("scene", "turn_on", data, blocking=True, context=context)
+
     for item in binding["lights"]:
-        tasks.append(light_action(item))
+        if not covered or item["entity_id"] not in covered:
+            tasks.append(light_action(item))
+    if scene_id:
+        tasks.append(scene_action())
     if phase == "wake":
         tasks += [cover_action(item) for item in binding["covers"]]
         if record["settings"]["types"][kind]["music"]:
@@ -765,7 +889,7 @@ def async_setup_wake_cards(hass):
     state = runtime(hass)
     entry = entry_for(hass)
     templates, cards, changed = shared_days.migrate(entry.options)
-    if changed:
+    if changed or templates != entry.options.get(shared_days.LIBRARY, {}):
         commit_shared(hass, entry, templates, cards, changed)
     if not state.get("unsubscribe"):
         async def scheduled_tick(when):
