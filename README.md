@@ -1,6 +1,8 @@
-# Wecker Manager
+# Wecker
 
-Eigenständige Home-Assistant-Integration mit Dashboardkarte für **Schultag, Wochenende und Ferien/schulfrei**. Version **1.1.0**, gemeinsames **HA UI Kit 1.4.1**.
+![Wecker](custom_components/wecker_manager/brand/icon.png)
+
+Eigenständige Home-Assistant-Integration mit Dashboardkarte für **Schultag, Wochenende und Ferien/schulfrei**. Version **1.1.1**, gemeinsames **HA UI Kit 1.4.1**.
 
 ## Funktionen
 
@@ -16,12 +18,20 @@ Eigenständige Home-Assistant-Integration mit Dashboardkarte für **Schultag, Wo
 ## Installation
 
 1. [Music Manager](https://github.com/v9h45n47mh-lab/music-manager) ab **2.1.0** mit Music Assistant und persönlicher Apple-Music-Zuordnung einrichten. Alle gewünschten Boxen für dieses eine Konto freigeben.
-2. In HACS unter **Benutzerdefinierte Repositories** `https://github.com/v9h45n47mh-lab/wecker-manager` als **Integration** hinzufügen und **Wecker Manager** installieren.
-3. Home Assistant neu starten. Unter **Einstellungen → Geräte & Dienste → Integration hinzufügen** **Wecker Manager** einrichten.
-4. Die Dashboardkarte **Wecker Manager** hinzufügen und den fünf Schritten folgen: **Musik → Rollläden → Licht → Schultage → Prüfen**.
+2. In HACS unter **Benutzerdefinierte Repositories** `https://github.com/v9h45n47mh-lab/wecker-manager` als **Integration** hinzufügen und **Wecker** installieren.
+3. Home Assistant neu starten. Unter **Einstellungen → Geräte & Dienste → Integration hinzufügen** **Wecker** einrichten.
+4. Die Dashboardkarte **Wecker** hinzufügen und den fünf Schritten folgen: **Musik → Rollläden → Licht → Schultage → Prüfen**.
 5. In der Übersicht **Wecker anlegen** drücken und das Dashboard speichern. Bestehende alte Wecker bei Bedarf selbst ausschalten.
 
 Der Music Manager wird als vorhandene Integration verwendet. Dieses Repository installiert ausschließlich `custom_components/wecker_manager`; es enthält und ersetzt keine Music-Manager-Installation. Die Dashboard-Ressource wird automatisch registriert.
+
+## Update auf 1.1.1
+
+In HACS aktualisieren, Home Assistant neu starten und im Browser vollständig neu laden (**Strg+F5**). Integration und Kartenkatalog heißen jetzt **Wecker**. Vorhandene Karten, Geräte und Weckzeiten bleiben erhalten; der technische Kartentyp `custom:wecker-manager-card` bleibt gleich.
+
+Zeigt der Karteneditor noch „Karte anlegen“ in der Vorschau oder den Hinweis zur automatischen Ablösung alter Wecker, ist noch das alte Kartenmodul aktiv. Version 1.1.1 registriert einen eigenen Ressourcenpfad und führt durch die fünf Einrichtungsschritte. Nach dem vollständigen Neuladen den visuellen Editor erneut öffnen.
+
+Die Integration liefert lokale Marketplace-Icons für Hell/Dunkel in 256 und 512 Pixeln mit. Sie verwenden das Weckersymbol des gemeinsamen UI Kits. Alte HACS-Versionen können Icons eigener Repositories erst nach Aktualisierung beziehungsweise Aktualisierung ihrer Metadaten anzeigen. Das Repository wird durch dieses Release nicht automatisch in den öffentlichen Marketplace-Katalog aufgenommen.
 
 ## Maximilian und Paul umstellen
 
@@ -41,3 +51,5 @@ Neue unabhängige Wecker benötigen keine YAML-Helfer oder YAML-Automationen und
 `npm ci`, `npm run build`, `npm run check`, `npm test`, `npm run test:browser`. Die Browserprüfung verwendet `CHROMIUM_PATH`, falls gesetzt. Backendtests prüfen die Schnittstelle gegen den separat ausgecheckten Music Manager am Commit `5b312361676197bf1178ce76b63ab46ac76d3975`; Quellpfad über `MUSIC_MANAGER_SOURCE` oder `.test-deps/music-manager` angeben. Der Release-Workflow richtet diese Testabhängigkeit ein.
 
 `python3 scripts/package.py` erzeugt das installierbare ZIP und eine selbständige Beispieldaten-Vorschau. Das UI Kit wird lokal mit festen Prüfsummen gebündelt; zur Laufzeit gibt es keinen CDN- oder GitHub-Abruf.
+
+`node scripts/brand.mjs` erzeugt die mitgelieferten Icons aus dem UI Kit erneut.

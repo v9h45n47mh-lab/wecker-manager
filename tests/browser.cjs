@@ -78,6 +78,21 @@ let browser;
  await editor.getByText('Musikkonto, Boxen, Rollläden und Lichter sind festgelegt.',{exact:false}).waitFor();assert.equal(await editor.locator('select').count(),0);
  assert.equal(await page.evaluate(()=>wakeDemo.calls.filter(m=>m.action==='create').length),1);
  assert.equal(await page.evaluate(()=>Object.hasOwn(wakeDemo.calls.find(m=>m.action==='create').config,'replace_automation')),false);
+ // Reproduce the supplied YAML: account selected, empty devices and a 1.1 catalog without automations.
+ await page.goto(url+'?editor=1&setup_only=1&prefilled=1&missing_optional=1');
+ await editor.locator('#wake-owner').waitFor();
+ assert.equal(await editor.locator('#wake-owner').inputValue(),'max');
+ assert.equal(await editor.locator('nav [data-action="navigate"]').count(),5);
+ assert.equal(await editor.locator('[role="alert"]').count(),0);
+ assert.equal(await page.evaluate(()=>Object.hasOwn(wakeDemo.edited,'replace_automation')),false);
+ await pick('speakers',['media_player.max']);
+ for(const step of ['covers','lights','calendar','review']){
+  await editor.locator(`[data-action="navigate"][data-page="${step}"]`).click();
+  assert.equal(await editor.locator('[role="alert"]').count(),0);
+ }
+ assert(await setupAction('setup-finish').isEnabled());
+ await editor.screenshot({path:path.join(screens,'setup-prefilled-no-optional-devices.png')});
+ assert.equal(await page.evaluate(()=>window.customCards.find(c=>c.type==='wecker-manager-card').name),'Wecker');
  await page.goto(url);await action('time').first().waitFor();
  await page.evaluate(()=>wakeDemo.switchUser('paul'));await card().getByRole('alert').waitFor();assert.equal(await action('time').count(),0);
  assert.deepEqual(errors,[]);console.log('PASS universal wake card: wheels, settings, fixed multi-device editor, account isolation, live sync, responsive theme/layout screenshots, guided setup and single-device dialogs');

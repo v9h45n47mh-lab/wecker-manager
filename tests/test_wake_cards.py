@@ -7,7 +7,7 @@ import sys
 import types
 from types import SimpleNamespace as NS
 from unittest import IsolatedAsyncioTestCase
-from unittest.mock import AsyncMock, Mock
+from unittest.mock import AsyncMock, Mock, patch
 from zoneinfo import ZoneInfo
 
 import music_fixture as gateway_fixture
@@ -219,3 +219,24 @@ class WakeCardTests(IsolatedAsyncioTestCase):
         self.assertEqual(self.events.async_track_time_change.call_args.kwargs,{'second':0})
         self.wake.async_unload_wake_cards(hass)
         self.events.async_track_time_change.return_value.assert_called_once()
+
+    async def test_upgrade_renames_the_default_entry_without_changing_stored_alarms(self):
+        hass,entry,_,admin,_,config,_,_=self.fixture()
+        await self.activate(hass,admin,config)
+        saved=deepcopy(entry.options)
+        frontend=types.ModuleType('custom_components.wecker_manager.frontend')
+        frontend.async_register_frontend=AsyncMock()
+        def update(entry, **changes):
+            for key,value in changes.items():setattr(entry,key,value)
+        hass.config_entries.async_update_entry=Mock(side_effect=update)
+        package=sys.modules['custom_components.wecker_manager']
+        with patch.dict(sys.modules,{'custom_components.wecker_manager.frontend':frontend}),patch.object(self.wake,'async_setup_wake_cards'):
+            entry.title='Wecker Manager'
+            self.assertTrue(await package.async_setup_entry(hass,entry))
+            self.assertEqual(entry.title,'Wecker')
+            self.assertEqual(entry.options,saved)
+            entry.title='Schlafzimmer'
+            hass.config_entries.async_update_entry.reset_mock()
+            self.assertTrue(await package.async_setup_entry(hass,entry))
+            self.assertEqual(entry.title,'Schlafzimmer')
+            hass.config_entries.async_update_entry.assert_not_called()

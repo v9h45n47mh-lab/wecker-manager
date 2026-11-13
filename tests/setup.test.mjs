@@ -6,7 +6,7 @@ import {parseHTML} from 'linkedom';
 const bundle=await readFile(new URL('../dist/wecker-manager-card.js',import.meta.url),'utf8');
 const clone=value=>JSON.parse(JSON.stringify(value));
 const flush=async()=>{for(let i=0;i<12;i++)await new Promise(resolve=>setImmediate(resolve));};
-function setup(){
+function setup({config={},catalog:override}={}){
  const {window}=parseHTML('<!doctype html><html><body></body></html>'),{document}=window;
  window.HTMLElement.prototype.showModal=function(){this.open=true;};
  window.HTMLElement.prototype.close=function(){this.open=false;this.dispatchEvent(new window.Event('close'));};
@@ -14,9 +14,10 @@ function setup(){
  vm.runInContext(bundle,context);
  const item=(id,label,attributes={})=>({id,label,description:id,attributes});
  const catalog={accounts:[{value:'max',label:'Maximilian'},{value:'paul',label:'Paul'}],speakers:[item('media_player.max','Maximilian'),item('media_player.second','Ankleide')],covers:[item('cover.one','Rollladen',{supported_features:4})],lights:[item('light.one','Deckenlicht',{supported_color_modes:['color_temp'],min_color_temp_kelvin:3000,max_color_temp_kelvin:6500})],calendars:[item('calendar.school','Schulfrei')]};
+ if(override)Object.assign(catalog,override);
  const calls=[],events=[];let created=null,fail=false;
  const editor=document.createElement('wecker-manager-card-editor');
- editor.setConfig({type:'custom:wecker-manager-card',alarm_id:'new_alarm',card_id:'new_card',owner_id:'',speakers:[],covers:[],lights:[],calendar_entity:'',sunrise_minutes:0});
+ editor.setConfig({type:'custom:wecker-manager-card',alarm_id:'new_alarm',card_id:'new_card',owner_id:'',speakers:[],covers:[],lights:[],calendar_entity:'',sunrise_minutes:0,...config});
  editor.addEventListener('config-changed',e=>events.push(clone(e.detail.config)));
  editor.hass={user:{id:'admin'},connection:{async subscribeEvents(){return ()=>{}}},states:{},async callWS(msg){calls.push(clone(msg));if(msg.action==='get')return created||{exists:false,can_create:true};if(msg.action==='catalog')return clone(catalog);if(msg.action==='create'){if(fail)throw Error('Box ist offline');created={exists:true,binding:clone(msg.config),revision:1};return clone(created);}}};
  document.body.append(editor);
@@ -25,6 +26,24 @@ function setup(){
  const pick=async(kind,values)=>{click('picker-open',`[data-kind="${kind}"]`);for(const input of editor.shadowRoot.querySelectorAll('#setup-devices input[type="checkbox"]')){input.checked=values.includes(input.value);input.toggleAttribute('checked',input.checked);input.dispatchEvent(new window.Event('change',{bubbles:true}));}click('picker-save');await flush();};
  return {editor,calls,events,click,change,pick,window,set fail(v){fail=v}};
 }
+test('screenshot configuration opens the visual editor without an obsolete automation catalog',async()=>{
+ const e=setup({config:{owner_id:'max',replace_automation:'automation.old'}});await flush();
+ assert.equal(e.editor.shadowRoot.querySelector('#wake-owner').value,'max');
+ assert.equal(e.editor.shadowRoot.querySelectorAll('nav [data-action="navigate"]').length,5);
+ assert.equal(e.editor.shadowRoot.querySelector('[role="alert"]'),null);
+ assert(!Object.hasOwn(e.events.at(-1),'replace_automation'));
+ await e.pick('speakers',['media_player.max']);for(let i=0;i<4;i++)e.click('setup-next');
+ assert.match(e.editor.shadowRoot.querySelector('#setup-page').textContent,/Maximilian/);
+ assert.equal(e.editor.shadowRoot.querySelector('#wake-replace'),null);e.editor.remove();
+});
+test('absent device lists and YAML null selections remain usable in every setup step',async()=>{
+ const e=setup({config:{owner_id:'max',speakers:null,covers:null,lights:null},catalog:{covers:undefined,lights:null,calendars:undefined}});await flush();
+ assert.equal(e.editor.shadowRoot.querySelector('[role="alert"]'),null);
+ await e.pick('speakers',['media_player.max']);e.click('setup-next');e.click('picker-open','[data-kind="covers"]');e.click('picker-cancel');
+ e.click('setup-next');e.click('picker-open','[data-kind="lights"]');e.click('picker-cancel');
+ e.click('setup-next');assert.equal(e.editor.shadowRoot.querySelector('#wake-calendar').options.length,1);
+ e.click('setup-next');assert(!e.editor.shadowRoot.querySelector('[data-action="setup-finish"]').disabled);e.editor.remove();
+});
 test('setup shows one step, hides technical IDs and validates music before continuing',async()=>{
  const e=setup();await flush();assert.equal(e.editor.shadowRoot.querySelector('[data-action="setup-next"]').disabled,true);
  assert.equal(e.editor.shadowRoot.querySelector('#wake-alarm-id'),null);assert.equal(e.editor.shadowRoot.querySelector('#wake-replace'),null);assert.equal(e.editor.shadowRoot.querySelector('#wake-calendar'),null);

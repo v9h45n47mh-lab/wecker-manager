@@ -7,7 +7,7 @@ import logging
 import re
 from types import SimpleNamespace
 
-import probatio as vol
+import voluptuous as vol
 
 from homeassistant.auth.permissions.const import POLICY_CONTROL, POLICY_READ
 from homeassistant.components import websocket_api
@@ -33,7 +33,7 @@ _LOGGER = logging.getLogger(__name__)
 def entry_for(hass):
     entries = list(hass.data.get(DOMAIN, {}).values())
     if len(entries) != 1:
-        raise AccessError("not_configured", "Bitte Wecker Manager zuerst einrichten.")
+        raise AccessError("not_configured", "Bitte Wecker zuerst einrichten.")
     return entries[0]
 
 

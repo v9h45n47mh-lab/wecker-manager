@@ -1,4 +1,4 @@
-name: Validate and release Wecker Manager
+name: Validate and release Wecker
 on:
   push:
     branches: [main]
@@ -37,17 +37,17 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add dist custom_components/wecker_manager/frontend Vorschau.html
           if ! git diff --cached --quiet; then
-            git commit -m "Build verified Wecker Manager distribution"
+            git commit -m "Build verified Wecker distribution"
             git push origin HEAD:main
           fi
-      - name: Publish first tested version
+      - name: Publish tested version
         if: github.event_name != 'pull_request'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           version=$(node -p 'JSON.parse(require("fs").readFileSync("package.json","utf8")).version')
           if ! gh release view "v${version}" >/dev/null 2>&1; then
-            gh release create "v${version}" --target "$(git rev-parse HEAD)" --title "Wecker Manager ${version}" --notes-file RELEASE_NOTES.md "../Wecker-Manager-${version}.zip" dist/wecker-manager-card.js dist/LICENSES.txt
+            gh release create "v${version}" --target "$(git rev-parse HEAD)" --title "Wecker ${version}" --notes-file RELEASE_NOTES.md "../Wecker-${version}.zip" dist/wecker-manager-card.js dist/LICENSES.txt
           fi
       - uses: actions/upload-artifact@v4
         if: always()

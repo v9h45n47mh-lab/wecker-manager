@@ -14,6 +14,8 @@ async def async_setup_entry(hass, entry):
     if len(hass.data.get(MUSIC_DOMAIN, {})) != 1:
         raise ConfigEntryNotReady("Bitte zuerst Music Manager einrichten.")
     await async_register_frontend(hass)
+    if getattr(entry, "title", None) == "Wecker Manager":
+        hass.config_entries.async_update_entry(entry, title="Wecker")
     hass.data.setdefault(DOMAIN, {})[entry.entry_id] = entry
     async_setup_wake_cards(hass)
     return True

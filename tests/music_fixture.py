@@ -54,6 +54,7 @@ def load_gateway():
     validator.Required = validator.Optional = lambda key, **kwargs: key
     validator.In = validator.Length = validator.Range = lambda *args, **kwargs: None
     validator.All = lambda *args: None
+    sys.modules['voluptuous'] = validator
     folder = PATH.parent
     spec = importlib.util.spec_from_file_location('custom_components.music_manager', folder / '__init__.py', submodule_search_locations=[str(folder)])
     pkg = importlib.util.module_from_spec(spec)

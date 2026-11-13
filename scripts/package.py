@@ -4,7 +4,7 @@ from zipfile import ZipFile, ZIP_DEFLATED
 import json, hashlib
 root=Path(__file__).resolve().parents[1]
 version=json.loads((root/'package.json').read_text())['version']
-output=root.parent/f'Wecker-Manager-{version}.zip'
+output=root.parent/f'Wecker-{version}.zip'
 script=(root/'dist/wecker-manager-card.js').read_text()
 fixture=(root/'tests/fixture.html').read_text()
 preview=fixture.replace('<script type="module" src="../custom_components/wecker_manager/frontend/wecker-manager-card.js"></script>','<script type="module">'+script.replace('</script','<\\/script')+'</script>')

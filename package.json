@@ -1,6 +1,6 @@
 {
   "name": "wecker-manager",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "private": true,
   "type": "module",
   "license": "MIT",
@@ -12,7 +12,8 @@
     "package": "python3 scripts/package.py"
   },
   "devDependencies": {
+    "linkedom": "0.18.15",
     "playwright": "1.62.1",
-    "linkedom": "0.18.15"
+    "sharp": "0.35.5"
   }
 }

@@ -33,7 +33,13 @@ const makeHass=()=>({user:{id:user,is_admin:user==='admin'},connection,states:{}
  }});
 const card=document.createElement('wecker-manager-card');card.setConfig(config);card.hass=makeHass();document.querySelector('#card').append(card);if(new URLSearchParams(location.search).has('setup_only'))document.querySelector('#card').hidden=true;
 let editor;
-if(new URLSearchParams(location.search).has('editor')){editor=document.createElement('wecker-manager-card-editor');editor.setConfig({...config,card_id:'new_card',alarm_id:'new_alarm',owner_id:'',speakers:[],covers:[],lights:[],calendar_entity:'',sunrise_minutes:0});editor.hass=makeHass();editor.addEventListener('config-changed',event=>{window.wakeDemo.edited=event.detail.config;});document.querySelector('#editor').append(editor);}
+if(new URLSearchParams(location.search).has('editor')){
+ const params=new URLSearchParams(location.search);
+ if(params.has('missing_optional'))for(const kind of ['covers','lights','calendars'])delete catalog[kind];
+ editor=card.constructor.getConfigElement();
+ editor.setConfig({...config,card_id:'new_card',alarm_id:'new_alarm',owner_id:params.has('prefilled')?'max':'',speakers:[],covers:[],lights:[],calendar_entity:'',sunrise_minutes:0,...(params.has('prefilled')?{replace_automation:'automation.old'}:{})});
+ editor.hass=makeHass();editor.addEventListener('config-changed',event=>{window.wakeDemo.edited=event.detail.config;});document.querySelector('#editor').append(editor);
+}
 document.querySelector('#theme').onclick=()=>document.body.classList.toggle('dark');
 window.wakeDemo={card,editor,config,records,catalog,calls,listeners,notify,makeHass,edited:null,
  set fail(value){fail=value},set delay(value){delay=value},

@@ -1,9 +1,9 @@
 {
-  "title": "Wecker Manager",
+  "title": "Wecker",
   "config": {
     "step": {
       "user": {
-        "title": "Wecker Manager einrichten",
+        "title": "Wecker einrichten",
         "description": "Verbinde die Weckerkarte mit deinem bereits eingerichteten Music Manager. Konto und Geräte legst du danach beim Anlegen jeder Dashboardkarte fest."
       }
     },
@@ -11,7 +11,7 @@
       "music_manager_required": "Bitte zuerst genau eine Music-Manager-Integration einrichten."
     },
     "abort": {
-      "single_instance_allowed": "Wecker Manager ist bereits eingerichtet."
+      "single_instance_allowed": "Wecker ist bereits eingerichtet."
     }
   }
 }

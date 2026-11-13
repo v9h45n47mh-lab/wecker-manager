@@ -15,8 +15,8 @@ const source=await read('src/wecker-manager-card.js');
 const pattern=/import\s*\{([\s\S]*?)\}\s*from '\.\/family-ui\/1\.4\.1\/family-ui\.js';/;
 const names=source.match(pattern)?.[1];if(!names)throw Error('Expected pinned UI import');
 const exports=[...kit.matchAll(/^export (?:async )?(?:const|function) (\w+)/gm)].map(m=>m[1]);
-const output=`/* Wecker Manager ${version} | MIT | HA UI Kit ${lock.version} bundled unchanged */\nconst WeckerManagerUI=(()=>{\n${kit.replace(/^export /gm,'')}\nreturn {${exports.join(',')}};\n})();\n(()=>{\n${source.replace(pattern,`const {${names}} = WeckerManagerUI;`)}\n})();\n`;
-const licenses=`Wecker Manager\n${await read('LICENSE')}\nHA UI Kit ${lock.version}\n${await read(`src/family-ui/${lock.version}/LICENSE`)}`;
+const output=`/* Wecker ${version} | MIT | HA UI Kit ${lock.version} bundled unchanged */\nconst WeckerManagerUI=(()=>{\n${kit.replace(/^export /gm,'')}\nreturn {${exports.join(',')}};\n})();\n(()=>{\n${source.replace(pattern,`const {${names}} = WeckerManagerUI;`)}\n})();\n`;
+const licenses=`Wecker\n${await read('LICENSE')}\nHA UI Kit ${lock.version}\n${await read(`src/family-ui/${lock.version}/LICENSE`)}`;
 const manifest=JSON.stringify({version,ui_version:lock.version,ui_source_commit:lock.sourceCommit,files:{'wecker-manager-card.js':hash(output),'LICENSES.txt':hash(licenses)}},null,2)+'\n';
 for(const dir of ['dist','custom_components/wecker_manager/frontend']){
  await mkdir(path.join(root,dir),{recursive:true});
@@ -25,4 +25,4 @@ for(const dir of ['dist','custom_components/wecker_manager/frontend']){
   else await writeFile(path.join(root,dir,name),value);
  }
 }
-console.log(`Wecker Manager ${version} · UI Kit ${lock.version} · ${process.argv.includes('--check')?'verified':'built'}`);
+console.log(`Wecker ${version} · UI Kit ${lock.version} · ${process.argv.includes('--check')?'verified':'built'}`);

@@ -1,6 +1,6 @@
-# Weckerkarte 1.0.0
+# Weckerkarte 1.1.1
 
-Die Karte bündelt Schultag, Wochenende und Ferien/schulfrei. Home Assistant führt die Wecker aus; ein geöffnetes Dashboard oder Handy wird nicht benötigt. Die Karte wird mit der eigenständigen Integration Wecker Manager installiert und erscheint als **Wecker Manager** im Kartenkatalog.
+Die Karte bündelt Schultag, Wochenende und Ferien/schulfrei. Home Assistant führt die Wecker aus; ein geöffnetes Dashboard oder Handy wird nicht benötigt. Die Karte wird mit der eigenständigen Integration Wecker installiert und erscheint als **Wecker** im Kartenkatalog.
 
 ## Anlegen
 

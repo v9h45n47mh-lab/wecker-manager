@@ -2,6 +2,7 @@
 
 import asyncio
 from pathlib import Path
+import re
 from urllib.parse import urlsplit
 
 from homeassistant.components.frontend import add_extra_js_url, remove_extra_js_url
@@ -12,11 +13,14 @@ from homeassistant.components.lovelace.resources import ResourceStorageCollectio
 from .const import DOMAIN, VERSION
 
 URL_BASE = "/wecker_manager/frontend"
-CARD_PATH = f"{URL_BASE}/wecker-manager-card.js"
+# A distinct path per release also invalidates caches that ignore query strings.
+RELEASE_PATH = f"{URL_BASE}/{VERSION}"
+CARD_PATH = f"{RELEASE_PATH}/wecker-manager-card.js"
 CARD_URL = f"{CARD_PATH}?v={VERSION}"
 FRONTEND_DIR = Path(__file__).parent / "frontend"
 DATA_FRONTEND = f"{DOMAIN}_frontend"
 LEGACY_PATHS = {
+    f"{URL_BASE}/wecker-manager-card.js",
     "/hacsfiles/wecker-manager/wecker-manager-card.js",
     "/local/community/wecker-manager/wecker-manager-card.js",
     "/local/wecker-manager/wecker-manager-card.js",
@@ -33,18 +37,23 @@ def resource_path(url):
         return None
     if parts.scheme or parts.netloc:
         return None
-    return parts.path if parts.path in LEGACY_PATHS | {CARD_PATH} else None
+    versioned = re.fullmatch(
+        re.escape(URL_BASE) + r"/\d+\.\d+\.\d+(?:[-+][a-zA-Z0-9.-]+)?/wecker-manager-card\.js",
+        parts.path,
+    )
+    return parts.path if parts.path in LEGACY_PATHS or versioned else None
 
 
 async def async_register_frontend(hass):
     """Install/update the resource without changing cards or user favorites."""
     state = hass.data.setdefault(DATA_FRONTEND, {"lock": asyncio.Lock()})
     async with state["lock"]:
-        if not state.get("static_registered"):
+        registered = state.setdefault("static_paths", set())
+        if RELEASE_PATH not in registered:
             await hass.http.async_register_static_paths([
-                StaticPathConfig(URL_BASE, str(FRONTEND_DIR), cache_headers=True)
+                StaticPathConfig(RELEASE_PATH, str(FRONTEND_DIR), cache_headers=True)
             ])
-            state["static_registered"] = True
+            registered.add(RELEASE_PATH)
 
         collection = hass.data[LOVELACE_DATA].resources
         if isinstance(collection, ResourceStorageCollection):
@@ -66,12 +75,16 @@ async def async_register_frontend(hass):
             # never rewritten; repeat this after every HA start.
             if state.get("yaml_collection") is not collection:
                 state["yaml_collection"] = collection
-                state["yaml_original"] = collection.async_items()
-            collection.data = [
-                {**item, "url": CARD_URL, "type": "module"}
-                if resource_path(item.get("url", "")) else item
-                for item in collection.async_items()
-            ]
+                state["yaml_original"] = list(collection.async_items())
+            normalized, card_added = [], False
+            for item in collection.async_items():
+                if resource_path(item.get("url", "")):
+                    if not card_added:
+                        normalized.append({**item, "url": CARD_URL, "type": "module"})
+                        card_added = True
+                else:
+                    normalized.append(item)
+            collection.data = normalized
 
         previous = state.get("url")
         if previous and previous != CARD_URL:

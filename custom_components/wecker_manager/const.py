@@ -1,4 +1,4 @@
-"""Wecker Manager constants."""
+"""Wecker constants."""
 DOMAIN = "wecker_manager"
 MUSIC_DOMAIN = "music_manager"
-VERSION = "1.1.0"
+VERSION = "1.1.1"
