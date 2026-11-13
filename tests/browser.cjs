@@ -96,6 +96,8 @@ let browser;
  for(const width of [390,320])for(const dark of [false,true]){
   await page.setViewportSize({width,height:1000});await page.evaluate(d=>document.body.classList.toggle('dark',d),dark);
   assert(await dayDialog.evaluate(el=>el.getBoundingClientRect().right<=innerWidth));
+  const iconBox=await dayDialog.locator('#day-icon-preview').boundingBox();assert(iconBox.width<=32&&iconBox.height<=32);
+  assert(await dayDialog.locator('#day-icon').evaluate(el=>el.getBoundingClientRect().right<=el.closest('dialog').getBoundingClientRect().right));
   await dayDialog.screenshot({path:path.join(screens,`setup-day-${width}-${dark?'dark':'light'}.png`)});
  }
  await dayDialog.getByRole('button',{name:'Übernehmen',exact:true}).click();

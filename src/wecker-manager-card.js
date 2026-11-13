@@ -244,7 +244,7 @@ class MusicManagerAlarmCardEditor extends HTMLElement {
       .setup-steps nav button{flex:1 1 auto}.setup-footer{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;position:sticky;bottom:0;padding-block:12px;background:var(--ha-card-background,var(--card-background-color,#fff));z-index:1}
       .setup-footer button{min-height:44px}.setup-list .setting-row{min-width:0}.setup-list .row-text{min-width:0;overflow-wrap:anywhere}
       .setup-choices .fui-selection-list{max-height:320px;overflow-y:auto;overscroll-behavior:contain}
-      .setup-day-row{display:grid;grid-template-columns:28px minmax(0,1fr);gap:8px;align-items:center;min-width:0}.setup-day-row>ha-icon{color:var(--primary-color,#03a9f4);--mdc-icon-size:var(--fui-icon)}.setup-day-row>.setting-row{min-width:0}.setup-day-icon{display:flex;align-items:center;gap:12px}.setup-day-icon>.field{flex:1}.setup-day-icon>ha-icon{color:var(--primary-color,#03a9f4)}
+      .setup-day-row{display:grid;grid-template-columns:28px minmax(0,1fr);gap:8px;align-items:center;min-width:0}.setup-day-row>ha-icon{color:var(--primary-color,#03a9f4);--mdc-icon-size:var(--fui-icon)}.setup-day-row>.setting-row{min-width:0}.setup-day-icon{display:flex;align-items:center;gap:12px}.setup-day-icon>.field{flex:1;min-width:0}.setup-day-icon>ha-icon{color:var(--primary-color,#03a9f4);flex:0 0 var(--fui-icon);width:var(--fui-icon);height:var(--fui-icon);--mdc-icon-size:var(--fui-icon)}
       .setup-dialog-content .field{min-width:0}.setup-dialog-content .position-control{min-width:0}
       @media(max-width:400px){.setup-footer button{flex:1}.setup-choices .fui-selection-list{max-height:50dvh}}
     </style><div class="setup-flow" id="setup-body"></div>
