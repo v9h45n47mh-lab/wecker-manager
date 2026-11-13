@@ -1,9 +1,9 @@
 {
-  "version": "1.7.1",
+  "version": "1.8.0",
   "ui_version": "1.4.1",
   "ui_source_commit": "393474e75869ba79195d800624a5a793a51fe2c4",
   "files": {
-    "wecker-manager-card.js": "6e49de434ef5cf920371bc5cc27d3f8d5272045d3d0511d82ccc8de09902df00",
+    "wecker-manager-card.js": "4990cb4d5c009dcee9eb90e3e2f3093b0f1f3c86c0489e153c93c09eea12d551",
     "LICENSES.txt": "c8542c521031ad9add83d52e97de0ef2c0e8a050b9110835032dfd7debf16c5a"
   }
 }
