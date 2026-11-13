@@ -163,14 +163,14 @@ async def catalog(hass, caller, owner_id=None):
     owner = await hass.auth.async_get_user(owner_id) if owner_id else caller
     if not owner or not owner.is_active or owner.system_generated:
         raise AccessError("unauthorized", "Bitte ein aktives Musikkonto wählen.")
-    devices = {kind: [] for kind in ("speakers", "covers", "lights", "calendars", "automations")}
-    domains = {"media_player": "speakers", "cover": "covers", "light": "lights", "calendar": "calendars", "automation": "automations"}
+    devices = {kind: [] for kind in ("speakers", "covers", "lights", "calendars")}
+    domains = {"media_player": "speakers", "cover": "covers", "light": "lights", "calendar": "calendars"}
     for state in hass.states.async_all():
         domain = state.entity_id.partition(".")[0]
         if domain not in domains:
             continue
         try:
-            allowed_entity(hass, owner if domain != "automation" else caller, caller, state.entity_id, domain, control=domain != "calendar")
+            allowed_entity(hass, owner, caller, state.entity_id, domain, control=domain != "calendar")
         except AccessError:
             continue
         devices[domains[domain]].append({"id": state.entity_id, "label": state.attributes.get("friendly_name", state.entity_id),
@@ -246,10 +246,6 @@ async def create_card(hass, caller, config):
         sunrise = integer(config.get("sunrise_minutes", 0), 0, 30)
         binding = {"card_id": card_id, "alarm_id": alarm_id, "owner_id": owner.id, "speakers": list(speakers),
                    "covers": checked_covers, "lights": checked_lights, "calendar_entity": calendar, "sunrise_minutes": sunrise}
-        replacement = config.get("replace_automation", "")
-        if replacement:
-            allowed_entity(hass, caller, caller, replacement, "automation")
-            await hass.services.async_call("automation", "turn_off", {"entity_id": replacement, "stop_actions": True}, blocking=True, context=Context(user_id=caller.id))
         # A recreated card replaces the old card for this alarm ID, so only one executes.
         settings = deepcopy(existing["settings"]) if existing else default_settings(hass, alarm_id)
         retired = list(existing.get("retired_card_ids", [])) + [existing["binding"]["card_id"]] if existing else []

@@ -4,28 +4,30 @@ Die Karte bündelt Schultag, Wochenende und Ferien/schulfrei. Home Assistant fü
 
 ## Anlegen
 
-1. Wecker Manager aus `v9h45n47mh-lab/wecker-manager` als eigenes HACS-Repository vom Typ **Integration** installieren. Music Manager muss bereits eingerichtet sein. Home Assistant neu starten und unter Geräte & Dienste **Wecker Manager** hinzufügen.
-2. Im Dashboard eine neue Karte **Wecker Manager** hinzufügen.
-3. Eine eindeutige Weckerkennung und genau ein eingerichtetes Musikkonto wählen. Das Konto entspricht der bestehenden HA-Benutzer-zu-Music-Assistant/Apple-Music-Zuordnung. Der zugehörige Benutzer sowie Administratoren können die Karte bedienen.
-4. Eine oder mehrere aktive Sonos-Boxen wählen. Alle verwenden dieses eine Konto. Die Boxen müssen für den Benutzer sowohl in HA als auch in Music Assistant freigegeben sein. Die Karte ändert keine Sonos-Gruppen; bei mehreren Boxen wird dasselbe Wecklied auf jeder gewählten Box gestartet.
-5. Optional mehrere Rollläden wählen und für jeden seine Zielposition festlegen: HA-Position **0 = geschlossen**, **100 = offen**. Nur Geräte mit Positionssteuerung stehen zur Auswahl.
-6. Optional mehrere Lichter wählen. Für jede dimmbare Lampe Helligkeit und bei unterstützten Geräten Farbtemperatur oder Farbe einstellen. Reine Ein/Aus-Lampen werden eingeschaltet.
-7. Optional einen Schulfrei-Kalender und eine Lichtaufhellung vor dem Schultagswecker wählen. Die Aufhellung führt von 1 % zur eingestellten Helligkeit; das Gerät muss Übergänge unterstützen. Rollläden und Musik starten erst zur eigentlichen Weckzeit.
-8. Bei einer Umstellung die bisherige Wecker-Automation auswählen. Beim Anlegen wird sie ausgeschaltet, einschließlich eventuell laufender Aktionen. Ohne Auswahl alte Wecker-Automationen selbst vorher ausschalten.
-9. In der Vorschau **Karte anlegen** drücken und die Dashboardänderung speichern.
+Die Einrichtung führt durch fünf überschaubare Schritte. Zurück/Weiter und die Schrittnavigation erlauben jederzeit Korrekturen, ohne die bisherige Auswahl zu verlieren.
 
-Geräte, Zielpositionen, Lichteinstellungen und Musikkonto sind danach fest zugeordnet. Sie lassen sich weder in den Weckereinstellungen noch nachträglich im Karteneditor ändern. Auch ein verändertes YAML wird nicht als neue Gerätezuordnung akzeptiert. Für Änderungen die Karte neu anlegen; dabei erzeugt der Kartenkatalog eine neue Kartenkennung. Mit derselben Weckerkennung ersetzt sie die bisherige Karte und übernimmt deren Weckzeiten, Schnellzeiten und Lautstärke. Die alte Kartenkennung kann danach nicht erneut aktiviert werden.
+1. **Musik:** Weckername, genau ein Musikkonto und mindestens eine Sonos-Box wählen. Die Boxenauswahl öffnet einen eigenen durchsuchbaren Dialog.
+2. **Rollläden:** Optional Rollläden auswählen. Neben jedem gewählten Gerät öffnet das Stiftsymbol ausschließlich dessen Zielposition. Ohne Rollläden direkt weitergehen.
+3. **Licht:** Optional Lichter auswählen und jeweils einzeln Helligkeit, Farbtemperatur oder Farbe einstellen. Nicht unterstützte Funktionen werden nicht angeboten. Sanftes Licht vor dem Schultagswecker ist hier ebenfalls wählbar.
+4. **Schultage:** Optional einen Kalender für schulfreie Tage wählen. Ohne Kalender gilt der Schultagswecker Mo–Fr; der Ferienwecker bleibt pausiert.
+5. **Prüfen:** Die Übersicht zeigt Konto, Boxen und alle Geräteeinstellungen. **Ändern** führt direkt zum passenden Schritt zurück. Erst **Wecker anlegen** speichert die feste Zuordnung. Danach das Dashboard speichern.
+
+Geräteauswahl und Geräteeinstellungen haben **Übernehmen** und **Abbrechen**. Abbrechen verwirft nur die Änderungen im geöffneten Dialog. Technische Karten- und Weckerkennungen werden automatisch verwaltet.
+
+Bestehende alte Wecker werden nicht automatisch ausgeschaltet oder verändert. Deaktiviere sie bei einer Umstellung selbst.
+
+Geräte, Zielpositionen, Lichteinstellungen und Musikkonto sind danach fest zugeordnet. Sie lassen sich weder in den Weckereinstellungen noch nachträglich im Karteneditor ändern. Auch ein verändertes YAML wird nicht als neue Gerätezuordnung akzeptiert. Für Änderungen die Karte neu anlegen; dabei erzeugt der Kartenkatalog eine neue Kartenkennung. Bei manueller Wiederverwendung derselben Weckerkennung ersetzt sie die bisherige Karte und übernimmt deren Weckzeiten, Schnellzeiten und Lautstärke. Die alte Kartenkennung kann danach nicht erneut aktiviert werden.
 
 Das bloße Kopieren einer vorhandenen Kartenkonfiguration erstellt dieselbe Karte auf einem weiteren Dashboard. Es erstellt keinen unabhängigen Wecker. Für einen unabhängigen Wecker eine neue Karte aus dem Katalog anlegen und eine neue Weckerkennung verwenden.
 
 ## Maximilian und Paul umstellen
 
-| Kind | Weckerkennung | Sanftes Licht | Vorhandene Automation auswählen |
-| --- | --- | --- | --- |
-| Maximilian | `m_wecker_schultag` | 5 Minuten | `M – Wecker` |
-| Paul | `p_wecker_schultag` | Aus | `P – Wecker` |
+| Kind | Weckerkennung | Sanftes Licht |
+| --- | --- | --- |
+| Maximilian | `m_wecker_schultag` | 5 Minuten |
+| Paul | `p_wecker_schultag` | Aus |
 
-Bei der ersten Anlage werden die aktuellen `input_datetime.<m/p>_wecker_<typ>_zeit` und `input_boolean.<m/p>_wecker_<typ>_aktiv` sowie die Musikschalter für Wochenende/Ferien einmalig übernommen. Die persönliche Musikauswahl bleibt unter derselben Weckerkennung erhalten. Anschließend speichert und verwendet der neue Wecker seine Einstellungen zentral selbst. Die alten Helfer werden nicht mehr für diesen Wecker benötigt; sie werden nicht gelöscht. Zusätzliche Lichtsignale oder andere unabhängige Automationen bleiben bestehen.
+Bei manueller Anlage mit der bisherigen Weckerkennung werden die aktuellen `input_datetime.<m/p>_wecker_<typ>_zeit` und `input_boolean.<m/p>_wecker_<typ>_aktiv` sowie die Musikschalter für Wochenende/Ferien einmalig übernommen. Bei bereits vorhandenen Karten oder manueller Übernahme derselben Weckerkennung bleibt die persönliche Musikauswahl erhalten. Anschließend speichert und verwendet der neue Wecker seine Einstellungen zentral selbst. Die alten Helfer werden nicht mehr für diesen Wecker benötigt; sie werden nicht gelöscht. Zusätzliche Lichtsignale oder andere unabhängige Automationen bleiben bestehen.
 
 Neue unabhängige Wecker beginnen ausgeschaltet. Sie benötigen keine YAML-Helfer und keine YAML-Automationen.
 

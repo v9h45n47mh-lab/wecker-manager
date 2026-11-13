@@ -1,13 +1,14 @@
-# Wecker Manager 1.0.0
+# Wecker Manager 1.1.0
 
-Erstes eigenständiges Release der universellen Weckerkarte. Eigenes Repository, eigene Integration und eigene Dashboardkarte `custom:wecker-manager-card`.
+Die Einrichtung ist jetzt ein geführter Ablauf: **Musik → Rollläden → Licht → Schultage → Prüfen**.
 
-- Drei Weckertypen mit Stunden-/Minuten-Drehrädern.
-- Bis zu drei Schnellzeiten je Typ; Musiklautstärke 5–15 %.
-- Genau ein festes Musikkonto, mehrere Boxen, mehrere Rollläden mit Position und mehrere Lichter mit individuellen Einstellungen.
-- Feste Gerätezuordnung nur beim Anlegen; neue Geräte erfordern eine neu angelegte Karte.
-- Zentrale HA-Ausführung, persönliche Rechte, Live-Abgleich und Schutz vor doppeltem Auslösen nach Neustarts.
-- Music Manager ab 2.1.0 liefert Musikauswahl und Wiedergabe. Ein Music-Manager-Update ist für diese Veröffentlichung nicht erforderlich.
-- Unverändertes HA UI Kit 1.4.1, Desktop/Mobil und Hell/Dunkel.
+- Pro Schritt sind nur die gerade benötigten Einstellungen sichtbar.
+- Geräte werden in einem eigenen durchsuchbaren Dialog gewählt; die Seite zeigt anschließend nur ausgewählte Geräte.
+- Rollladenposition und Lichteinstellungen werden je Gerät in einem kompakten Dialog bearbeitet. Übernehmen/Abbrechen sind getrennt vom Anlegen der Karte.
+- Zurück/Weiter sowie Ändern in der Übersicht behalten alle bisherigen Eingaben bei.
+- Die Übersicht schließt die Einrichtung mit **Wecker anlegen** ab. Ein zusätzlicher Anlegeknopf in der Vorschau entfällt.
+- Technische Kennungen werden automatisch verwaltet.
+- Die automatische Ablösung alter Wecker ist entfernt. Alte Wecker werden ausschließlich manuell deaktiviert.
+- HA UI Kit 1.4.1 und die feste Geräte-/Kontozuordnung bleiben erhalten.
 
-Als eigene **Integration** in HACS installieren, HA neu starten, **Wecker Manager** unter Geräte & Dienste hinzufügen und die gleichnamige Dashboardkarte anlegen. Bei der Umstellung die alte Wecker-Automation zur Ablösung auswählen.
+In HACS aktualisieren, Home Assistant neu starten und die Seite vollständig neu laden. Vorhandene Karten und Weckzeiten bleiben erhalten.

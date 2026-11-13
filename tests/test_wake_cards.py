@@ -199,7 +199,7 @@ class WakeCardTests(IsolatedAsyncioTestCase):
         self.assertTrue(any(a.args[1]=='set_cover_position' for a in hass.services.async_call.await_args_list))
         self.assertIn('fehlgeschlagen',self.wake.runtime(hass)['errors'][c['card_id']])
 
-    async def test_creation_checks_every_speaker_player_filter_and_replacement_runs_only_once(self):
+    async def test_creation_checks_every_speaker_and_never_disables_existing_automations(self):
         hass,entry,owner,admin,_,c,states,_=self.fixture()
         hass.mass.auth.get_user.return_value.player_filter=['RINCON_AABBCCDDEEFF01400']
         with self.assertRaises(self.wake.AccessError):await self.wake.create_card(hass,admin,c)
@@ -208,8 +208,8 @@ class WakeCardTests(IsolatedAsyncioTestCase):
         c['replace_automation']='automation.old'
         await self.wake.create_card(hass,admin,c)
         await self.wake.create_card(hass,admin,c)
-        self.assertEqual(hass.services.async_call.await_count,1)
-        hass.services.async_call.assert_awaited_with('automation','turn_off',{'entity_id':'automation.old','stop_actions':True},blocking=True,context=hass.services.async_call.await_args.kwargs['context'])
+        hass.services.async_call.assert_not_awaited()
+        self.assertEqual(states['automation.old'].state,'on')
 
     async def test_scheduler_attaches_once_and_detaches_on_unload(self):
         hass,*_=self.fixture()

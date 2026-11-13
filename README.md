@@ -1,6 +1,6 @@
 # Wecker Manager
 
-Eigenständige Home-Assistant-Integration mit Dashboardkarte für **Schultag, Wochenende und Ferien/schulfrei**. Version **1.0.0**, gemeinsames **HA UI Kit 1.4.1**.
+Eigenständige Home-Assistant-Integration mit Dashboardkarte für **Schultag, Wochenende und Ferien/schulfrei**. Version **1.1.0**, gemeinsames **HA UI Kit 1.4.1**.
 
 ## Funktionen
 
@@ -18,19 +18,19 @@ Eigenständige Home-Assistant-Integration mit Dashboardkarte für **Schultag, Wo
 1. [Music Manager](https://github.com/v9h45n47mh-lab/music-manager) ab **2.1.0** mit Music Assistant und persönlicher Apple-Music-Zuordnung einrichten. Alle gewünschten Boxen für dieses eine Konto freigeben.
 2. In HACS unter **Benutzerdefinierte Repositories** `https://github.com/v9h45n47mh-lab/wecker-manager` als **Integration** hinzufügen und **Wecker Manager** installieren.
 3. Home Assistant neu starten. Unter **Einstellungen → Geräte & Dienste → Integration hinzufügen** **Wecker Manager** einrichten.
-4. Die Dashboardkarte **Wecker Manager** hinzufügen. Musikkonto, Boxen, Rollläden, Licht und optional Schulfrei-Kalender wählen.
-5. Bei einer Umstellung im Karteneditor die bisherige Wecker-Automation zur Ablösung auswählen. In der Vorschau **Karte anlegen** drücken und das Dashboard speichern.
+4. Die Dashboardkarte **Wecker Manager** hinzufügen und den fünf Schritten folgen: **Musik → Rollläden → Licht → Schultage → Prüfen**.
+5. In der Übersicht **Wecker anlegen** drücken und das Dashboard speichern. Bestehende alte Wecker bei Bedarf selbst ausschalten.
 
 Der Music Manager wird als vorhandene Integration verwendet. Dieses Repository installiert ausschließlich `custom_components/wecker_manager`; es enthält und ersetzt keine Music-Manager-Installation. Die Dashboard-Ressource wird automatisch registriert.
 
 ## Maximilian und Paul umstellen
 
-| Kind | Weckerkennung | Sanftes Licht | Vorhandene Automation |
-| --- | --- | --- | --- |
-| Maximilian | `m_wecker_schultag` | 5 Minuten | `M – Wecker` |
-| Paul | `p_wecker_schultag` | Aus | `P – Wecker` |
+| Kind | Weckerkennung | Sanftes Licht |
+| --- | --- | --- |
+| Maximilian | `m_wecker_schultag` | 5 Minuten |
+| Paul | `p_wecker_schultag` | Aus |
 
-Mit diesen Kennungen werden vorhandene Helferzeiten, Aktivierungen, Musikschalter und gespeicherte Wecklieder übernommen. Als Kalender **Schulfreie Tage** wählen. Die alte Automation wird beim Anlegen ausgeschaltet, wenn sie zur Ablösung ausgewählt wurde. Alte und neue Wecker nicht gleichzeitig betreiben. Zusätzliche unabhängige Lichtsignale bleiben bestehen.
+Bereits vorhandene Karten behalten ihre Weckerkennung und alle Einstellungen. Bei manueller YAML-Konfiguration mit diesen Kennungen werden vorhandene Helferzeiten, Aktivierungen, Musikschalter und gespeicherte Wecklieder übernommen. Der Assistent verwaltet die Kennungen neuer Karten automatisch. Als Kalender **Schulfreie Tage** wählen. Alte Wecker-Automationen werden nicht verändert. Deaktiviere den bisherigen Wecker bei einer Umstellung selbst. Zusätzliche unabhängige Lichtsignale bleiben bestehen.
 
 Neue unabhängige Wecker benötigen keine YAML-Helfer oder YAML-Automationen und beginnen ausgeschaltet.
 

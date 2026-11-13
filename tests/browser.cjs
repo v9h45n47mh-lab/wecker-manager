@@ -43,15 +43,42 @@ let browser;
   await action('time').first().click();assert(await time.isVisible());assert(await time.evaluate(el=>el.getBoundingClientRect().right<=innerWidth));
   await page.screenshot({path:path.join(screens,`wake-time-${width}-${dark?'dark':'light'}.png`),fullPage:true});await page.keyboard.press('Escape');
  }
- await page.setViewportSize({width:1100,height:1000});await page.goto(url+'?editor=1');const editor=page.locator('wecker-manager-card-editor');await editor.locator('#wake-owner').waitFor();
- await editor.locator('#wake-owner').selectOption('max');await editor.locator('#wake-speakers').waitFor();
- await editor.locator('#wake-speakers input[type=checkbox]').nth(0).check();await editor.locator('#wake-speakers input[type=checkbox]').nth(1).check();
- await editor.locator('#wake-covers input[type=checkbox]').nth(0).check();await editor.locator('#wake-cover-0').evaluate(el=>{el.value='65';el.dispatchEvent(new Event('input',{bubbles:true}));el.dispatchEvent(new Event('change',{bubbles:true}));});
- await editor.locator('#wake-lights input[type=checkbox]').nth(0).check();await editor.locator('#wake-colourmode-0').selectOption('temperature');
- assert(await editor.locator('#wake-kelvin-0').count());
- assert.equal(await page.evaluate(()=>wakeDemo.edited.speakers.length),2);assert.equal(await page.evaluate(()=>wakeDemo.edited.covers[0].position),65);
- await page.evaluate(async()=>{const config=wakeDemo.edited;await wakeDemo.makeHass().callWS({type:'wecker_manager/card',action:'create',config});wakeDemo.editor._loadedKey=null;await wakeDemo.editor._load(true);});
- await editor.getByText('Musikkonto, Boxen, Rollläden und Lichter sind festgelegt.',{exact:false}).waitFor();assert.equal(await editor.locator('select').count(),0);assert.match(await editor.locator('.notice').innerText(),/festgelegt/);
+ await page.setViewportSize({width:390,height:1000});await page.goto(url+'?editor=1&setup_only=1');const editor=page.locator('wecker-manager-card-editor');await editor.locator('#wake-owner').waitFor();
+ const setupAction=(name,extra='')=>editor.locator(`[data-action="${name}"]${extra}`);
+ const pick=async(kind,ids)=>{
+  await setupAction('picker-open',`[data-kind="${kind}"]`).click();const picker=editor.locator('#setup-picker');await picker.waitFor();
+  for(const id of ids)await picker.locator(`input[type=checkbox][value="${id}"]`).check();
+  await picker.getByRole('button',{name:'Übernehmen',exact:true}).click();await picker.waitFor({state:'hidden'});
+ };
+ const captureStep=async(number)=>{
+  for(const width of [1100,390,320])for(const dark of [false,true]){
+   await page.setViewportSize({width,height:1000});await page.evaluate(d=>document.body.classList.toggle('dark',d),dark);
+   assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
+   await editor.screenshot({path:path.join(screens,`setup-step-${number}-${width}-${dark?'dark':'light'}.png`)});
+  }
+  await page.setViewportSize({width:390,height:1000});await page.evaluate(()=>document.body.classList.remove('dark'));
+ };
+ assert.equal(await editor.locator('#wake-alarm-id,#wake-replace').count(),0);assert(await setupAction('setup-next').isDisabled());
+ await editor.locator('#wake-owner').selectOption('max');await setupAction('picker-open','[data-kind="speakers"]').waitFor();
+ await pick('speakers',['media_player.max','media_player.dress']);await captureStep(1);
+ await setupAction('setup-next').click();await pick('covers',['cover.max','cover.dress']);
+ await setupAction('device-open','[data-kind="covers"][data-index="0"]').click();let device=editor.locator('#setup-device');
+ await device.locator('#setup-position').evaluate(el=>{el.value='65';el.dispatchEvent(new Event('input',{bubbles:true}));el.dispatchEvent(new Event('change',{bubbles:true}));});
+ await device.getByRole('button',{name:'Abbrechen',exact:true}).click();assert.equal(await page.evaluate(()=>wakeDemo.edited.covers[0].position),100);
+ await setupAction('device-open','[data-kind="covers"][data-index="0"]').click();
+ await device.locator('#setup-position').evaluate(el=>{el.value='65';el.dispatchEvent(new Event('input',{bubbles:true}));el.dispatchEvent(new Event('change',{bubbles:true}));});
+ await device.getByRole('button',{name:'Übernehmen',exact:true}).click();assert.equal(await page.evaluate(()=>wakeDemo.edited.covers[0].position),65);await captureStep(2);
+ await setupAction('setup-next').click();await pick('lights',['light.max','light.dress']);
+ await setupAction('device-open','[data-kind="lights"][data-index="0"]').click();await device.locator('#setup-colourmode').selectOption('temperature');
+ assert(await device.locator('#setup-kelvin').count());await device.getByRole('button',{name:'Übernehmen',exact:true}).click();await captureStep(3);
+ await setupAction('setup-next').click();await editor.locator('#wake-calendar').selectOption('calendar.school');await captureStep(4);
+ await setupAction('setup-back').click();assert.equal(await page.evaluate(()=>wakeDemo.edited.lights.length),2);await setupAction('setup-next').click();
+ await setupAction('setup-next').click();assert.equal(await page.evaluate(()=>wakeDemo.calls.filter(m=>m.action==='create').length),0);await captureStep(5);
+ assert.equal(await editor.locator('#wake-replace').count(),0);await setupAction('setup-finish').click();
+ await editor.getByText('Musikkonto, Boxen, Rollläden und Lichter sind festgelegt.',{exact:false}).waitFor();assert.equal(await editor.locator('select').count(),0);
+ assert.equal(await page.evaluate(()=>wakeDemo.calls.filter(m=>m.action==='create').length),1);
+ assert.equal(await page.evaluate(()=>Object.hasOwn(wakeDemo.calls.find(m=>m.action==='create').config,'replace_automation')),false);
+ await page.goto(url);await action('time').first().waitFor();
  await page.evaluate(()=>wakeDemo.switchUser('paul'));await card().getByRole('alert').waitFor();assert.equal(await action('time').count(),0);
- assert.deepEqual(errors,[]);console.log('PASS universal wake card: wheels, settings, fixed multi-device editor, account isolation, live sync, 18 theme/layout screenshots');
+ assert.deepEqual(errors,[]);console.log('PASS universal wake card: wheels, settings, fixed multi-device editor, account isolation, live sync, 48 theme/layout screenshots, guided setup and single-device dialogs');
 })().catch(error=>{console.error(error);process.exitCode=1;}).finally(async()=>{await browser?.close();server.close();});
