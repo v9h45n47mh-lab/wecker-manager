@@ -226,9 +226,9 @@ def save_record(hass, entry, alarm_id, record, *, notify=True):
         hass.bus.async_fire(EVENT, {"alarm_id": alarm_id})
 
 
-def commit_shared(hass, entry, templates, cards, changed):
+def commit_shared(hass, entry, templates, cards, changed, *, extra=None):
     templates_changed = templates != entry.options.get(shared_days.LIBRARY, {})
-    hass.config_entries.async_update_entry(entry, options={**entry.options, shared_days.LIBRARY: templates, KEY: cards})
+    hass.config_entries.async_update_entry(entry, options={**entry.options, **(extra or {}), shared_days.LIBRARY: templates, KEY: cards})
     for alarm_id in changed:
         hass.bus.async_fire(EVENT, {"alarm_id": alarm_id})
     if templates_changed:
@@ -448,21 +448,74 @@ async def delete_day_template(hass, caller, template_id, revision, remove_cards=
                 raise AccessError("cleanup_confirmation_required", "Bitte die Verwendung aktualisieren und das Entfernen der aufgeführten Wecker ohne Dashboardkarte bestätigen.")
             if any(record.get("stops") or record["binding"]["card_id"] in runtime(hass)["busy"] for record in linked.values()):
                 raise AccessError("wake_in_progress", "Ein betroffener Wecker läuft noch. Bitte nach dem Ende der Weckmusik erneut löschen.")
-        for key, record in linked.items():
-            del cards[key]
-            if cancel := runtime(hass).setdefault("stop_timers", {}).pop(key, None):
-                cancel()
-            runtime(hass)["errors"].pop(record["binding"]["card_id"], None)
-        if linked:
-            music_entry = music_entry_for(hass)
-            def removed_binding(alarm):
-                record = linked.get(alarm.get("alarm_id"))
-                return record and alarm.get("ha_user_id") == record["binding"]["owner_id"] and alarm.get("source_entity") == record["binding"]["speakers"][0]
-            alarms = [alarm for alarm in music_entry.options.get(CONF_ALARMS, []) if not removed_binding(alarm)]
-            hass.config_entries.async_update_entry(music_entry, options={**music_entry.options, CONF_ALARMS: alarms})
         del templates[template_id]
-        commit_shared(hass, entry, templates, cards, set(migrated) | set(linked))
+        remove_card_records(hass, entry, templates, cards, linked, migrated)
         return {"deleted": True, "removed_cards": len(linked)}
+
+
+def remove_card_records(hass, entry, templates, cards, linked, changed=()):
+    """Commit checked removals while retaining all unrelated shared definitions."""
+    from .card_setups import KEY as SETUPS
+    if any(record.get("stops") or record["binding"]["card_id"] in runtime(hass)["busy"] for record in linked.values()):
+        raise AccessError("wake_in_progress", "Ein betroffener Wecker läuft noch. Bitte nach dem Ende der Weckmusik erneut löschen.")
+    if linked:
+        music_entry = music_entry_for(hass)
+        def removed_binding(alarm):
+            record = linked.get(alarm.get("alarm_id"))
+            return record and alarm.get("ha_user_id") == record["binding"]["owner_id"] and alarm.get("source_entity") == record["binding"]["speakers"][0]
+        alarms = [alarm for alarm in music_entry.options.get(CONF_ALARMS, []) if not removed_binding(alarm)]
+        hass.config_entries.async_update_entry(music_entry, options={**music_entry.options, CONF_ALARMS: alarms})
+    removed = {(key, record["binding"]["card_id"]) for key, record in linked.items()}
+    pending = {key: draft for key, draft in entry.options.get(SETUPS, {}).items() if (draft["config"]["alarm_id"], draft["config"]["card_id"]) not in removed}
+    for key, record in linked.items():
+        cards.pop(key)
+        if cancel := runtime(hass).setdefault("stop_timers", {}).pop(key, None):
+            cancel()
+        runtime(hass)["errors"].pop(record["binding"]["card_id"], None)
+    templates_changed = templates != entry.options.get(shared_days.LIBRARY, {})
+    commit_shared(hass, entry, templates, cards, set(changed) | set(linked), extra={SETUPS: pending})
+    if linked and not templates_changed:
+        hass.bus.async_fire(EVENT, {"day_templates": True})
+
+
+async def list_cards(hass, caller):
+    require_admin(caller)
+    from .card_setups import synchronize_saved_setups
+    from .dashboard_usage import current_references
+    await synchronize_saved_setups(hass, force=True)
+    references = await current_references(hass)
+    cards = deepcopy(entry_for(hass).options.get(KEY, {}))
+    owners, result = {}, []
+    for alarm_id, record in cards.items():
+        binding = record["binding"]
+        if binding["owner_id"] not in owners:
+            user = await hass.auth.async_get_user(binding["owner_id"])
+            owners[binding["owner_id"]] = (user.name or user.id) if user else "Entfernter Benutzer"
+        dashboards = sorted(references.get((alarm_id, binding["card_id"]), []))
+        running = bool(record.get("stops") or binding["card_id"] in runtime(hass)["busy"])
+        reason = "Zuerst aus den Dashboard- und Statuskarten entfernen." if dashboards else "Weckvorgang oder Musikstopp läuft noch." if running else ""
+        result.append({"alarm_id": alarm_id, "card_id": binding["card_id"], "revision": record["revision"], "name": record.get("name", "Wecker"), "owner": owners[binding["owner_id"]],
+                       "days": [(day.get("display_name") or day["name"]) + " " + record["settings"]["types"].get(day["id"], {}).get("time", "") for day in day_definitions(record)],
+                       "speakers": [(state.attributes.get("friendly_name") or source) if (state := hass.states.get(source)) else source for source in binding["speakers"]],
+                       "dashboards": dashboards, "can_delete": not bool(reason), "blocked_reason": reason})
+    result.sort(key=lambda item: (item["owner"].casefold(), item["name"].casefold(), item["alarm_id"]))
+    return {"cards": result, "usage_checked_at": dt_util.utcnow().isoformat()}
+
+
+async def delete_card(hass, caller, alarm_id, card_id, revision):
+    require_admin(caller)
+    identifier(alarm_id)
+    identifier(card_id)
+    from .dashboard_usage import current_references
+    entry = entry_for(hass)
+    async with runtime(hass)["lock"]:
+        record = entry.options.get(KEY, {}).get(alarm_id)
+        if not record or record["binding"]["card_id"] != card_id or type(revision) is not int or record["revision"] != revision:
+            raise AccessError("conflict", "Der Wecker wurde geändert oder bereits entfernt. Bitte aktualisieren.")
+        if (alarm_id, card_id) in await current_references(hass):
+            raise AccessError("card_in_use", "Der Wecker wird auf einer Dashboard- oder Statuskarte verwendet. Bitte zuerst dort entfernen und aktualisieren.")
+        remove_card_records(hass, entry, deepcopy(entry.options.get(shared_days.LIBRARY, {})), deepcopy(entry.options.get(KEY, {})), {alarm_id: record})
+        return {"deleted": True}
 
 
 async def create_card(hass, caller, config, *, reconfigure=False, revision=None, confirm_disable=None, validate_only=False, setup_id=None):
@@ -785,7 +838,7 @@ async def upcoming_info(hass, caller, alarm_id, card_id):
 
 @websocket_api.websocket_command({
     vol.Required("type"): "wecker_manager/card",
-    vol.Required("action"): vol.In(["catalog", "get", "prepare_setup", "setup_status", "create", "configure", "update", "set_enabled", "set_playback", "day_info", "upcoming", "configure_days", "save_day_template", "delete_day_template"]),
+    vol.Required("action"): vol.In(["catalog", "list_cards", "delete_card", "get", "prepare_setup", "setup_status", "create", "configure", "update", "set_enabled", "set_playback", "day_info", "upcoming", "configure_days", "save_day_template", "delete_day_template"]),
     vol.Optional("alarm_id"): str,
     vol.Optional("card_id"): str,
     vol.Optional("owner_id"): str,
@@ -811,6 +864,10 @@ async def websocket_wake_card(hass, connection, msg):
             action = msg["action"]
             if action == "catalog":
                 result = await catalog(hass, connection.user, msg.get("owner_id"), refresh_usage=msg.get("refresh_usage", False))
+            elif action == "list_cards":
+                result = await list_cards(hass, connection.user)
+            elif action == "delete_card":
+                result = await delete_card(hass, connection.user, msg.get("alarm_id"), msg.get("card_id"), msg.get("revision"))
             elif action == "prepare_setup":
                 from .card_setups import prepare_setup
                 result = await prepare_setup(hass, connection.user, msg.get("config"), msg.get("revision"), msg.get("confirm_disable"))

@@ -28,6 +28,7 @@ function fixture({days,settings:override,header,status=false,admin=false,upcomin
   if(msg.action==='upcoming')return {types:clone(upcoming)};
   if(msg.action==='get')return clone(record);
   if(msg.action==='catalog')return {shared_days:[],calendars:[]};
+  if(msg.action==='list_cards')return {cards:[],usage_checked_at:'2026-11-13T16:00:00Z'};
   if(msg.action==='update'){if(fail)throw {code:'save_failed',message:'Speichern fehlgeschlagen'};if(msg.revision!==record.revision)throw {code:'conflict',message:'Auf einem anderen Gerät geändert'};record.settings=clone(msg.settings);if(msg.playback)record.playback=clone(msg.playback);record.revision++;for(const callback of listeners)callback({data:{alarm_id:'school'}});return clone(record);}
   if(msg.action==='set_playback'){if(fail)throw {code:'save_failed',message:'Speichern fehlgeschlagen'};record.playback=clone(msg.playback);record.revision++;for(const callback of listeners)callback({data:{alarm_id:'school'}});return clone(record);}
   if(msg.action==='set_enabled'){if(fail)throw {code:'save_failed',message:'Speichern fehlgeschlagen'};record.settings.types[msg.kind].enabled=msg.enabled;record.revision++;for(const callback of listeners)callback({data:{alarm_id:'school'}});return clone(record);}
@@ -151,6 +152,10 @@ test('administrator settings render with supported UI Kit icons and open the sha
  assert(e.card.shadowRoot.querySelector('#wake-settings').lastElementChild.classList.contains('version-info'));
  e.click('manage-templates');await flush();assert(e.card.shadowRoot.querySelector('#wake-templates-dialog').open);assert(e.card.shadowRoot.querySelector('wecker-manager-day-manager').shadowRoot.querySelector('[data-action="day-add"]'));
  e.card.remove();assert.equal(e.listeners.size,0);
+});
+test('administrator opens independent alarm management from settings and it unsubscribes on close',async()=>{
+ const e=fixture({admin:true});await flush();e.click('settings');e.click('manage-alarms');await flush();assert(e.card.shadowRoot.querySelector('#wake-alarms-dialog').open);assert.match(e.card.shadowRoot.querySelector('wecker-manager-alarm-manager').shadowRoot.getElementById('alarm-manager-body').textContent,/Keine ungenutzten Wecker/);e.card.shadowRoot.querySelector('#wake-alarms-dialog').close();await flush();assert.equal(e.card.shadowRoot.querySelector('wecker-manager-alarm-manager'),null);e.card.remove();assert.equal(e.listeners.size,0);
+ const child=fixture();await flush();child.click('settings');assert.equal(child.card.shadowRoot.querySelector('[data-action="manage-alarms"]'),null);child.card.remove();
 });
 
 test('wake settings own playback duration, cancel drafts, and keep failed saves open',async()=>{

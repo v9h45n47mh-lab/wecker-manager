@@ -1,4 +1,4 @@
-# Weckerkarte 1.8.0
+# Weckerkarte 1.9.0
 
 Die Integration führt Wecker zentral in Home Assistant aus. Dashboardkarten zeigen und ändern die zentral gespeicherten Daten. Der separat installierte Music Manager liefert die persönliche Musikauswahl.
 
@@ -23,6 +23,16 @@ Name, Symbol, Wochentage, Kalender und die Regel für freie/gebuchte Tage gehör
 Beispiel: **Schultag** bei Maximilian anlegen. Bei Paul im Setup **Gemeinsamen Tagestyp verwenden → Schultag → Tagestyp übernehmen** wählen. Paul erhält eine eigene Weckzeit. Wird später der gemeinsame Schultagskalender oder ein Wochentag geändert, erhalten beide Karten diese Regel. Der Tagestyp-Dialog weist darauf hin. Das Entfernen eines Typs aus einer Karte entfernt ihn nicht aus einer anderen Karte.
 
 Vorhandene Tage werden beim Update übernommen. Identische gemeinsame Regeln werden zusammengeführt. Unterschiedliche Kalenderregeln bleiben getrennt. Kalenderzugriff wird für jeden verknüpften Eigentümer geprüft, bevor eine gemeinsame Änderung gespeichert wird.
+
+## Gespeicherte Wecker verwalten und löschen
+
+Als Administrator **Zahnrad → Wecker verwalten** öffnen. Die Ansicht zeigt zunächst **Ungenutzte**, mit **Alle** auch die verwendeten Wecker. Pro Wecker sind Name, Benutzer, Tagestypen mit Zeiten, Boxen und die aktuelle Dashboard- beziehungsweise Statuskartenverwendung sichtbar. **Aktualisieren** prüft die Verwendung erneut.
+
+Beim gewünschten ungenutzten Wecker auf den Papierkorb klicken. **Wecker löschen** bestätigt den angezeigten Namen und Benutzer. Entfernt werden nur dieser Wecker, seine passende Music-Manager-Weckerzuordnung und zugehörige offene Konfigurationsentwürfe. Gemeinsame Tagestypen, andere Wecker und die persönlichen Musikfavoriten bleiben erhalten.
+
+Solange eine aktuelle Dashboard- oder Statuskarte den Wecker benötigt, bleibt der Papierkorb deaktiviert. Entferne zunächst dessen Karten und aktualisiere die Übersicht. Ein aktuell laufender Weckvorgang oder ausstehender Musikstopp muss abgeschlossen sein. Der Server prüft vor jeder Löschung die Kartenverwendung und die geladene Revision erneut. Bei einem Fehler bleibt der Eintrag erhalten.
+
+Die Verwaltung ist auch über **Wecker verwalten** im Platzhalter einer noch nicht eingerichteten Weckerkarte erreichbar. Damit können Administratoren aufräumen, wenn keine verwendete Weckerkarte mehr vorhanden ist.
 
 ## Tagestypen verwalten
 

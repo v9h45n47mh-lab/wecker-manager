@@ -6,7 +6,7 @@ import {parseHTML} from 'linkedom';
 const bundle=await readFile(new URL('../dist/wecker-manager-card.js',import.meta.url),'utf8');
 const clone=value=>JSON.parse(JSON.stringify(value));
 const flush=async()=>{for(let i=0;i<12;i++)await new Promise(resolve=>setImmediate(resolve));};
-function setup({config={},catalog:override,manager=false,direct=true}={}){
+function setup({config={},catalog:override,manager=false,alarms=false,storedCards=[],direct=true}={}){
  const {window}=parseHTML('<!doctype html><html><body></body></html>'),{document}=window;
  window.HTMLElement.prototype.showModal=function(){this.open=true;};
  window.HTMLElement.prototype.close=function(){this.open=false;this.dispatchEvent(new window.Event('close'));};
@@ -16,12 +16,14 @@ function setup({config={},catalog:override,manager=false,direct=true}={}){
  const catalog={accounts:[{value:'max',label:'Maximilian'},{value:'paul',label:'Paul'}],speakers:[item('media_player.max','Maximilian'),item('media_player.second','Ankleide')],covers:[item('cover.one','Rollladen',{supported_features:4})],lights:[item('light.one','Deckenlicht',{supported_color_modes:['color_temp'],min_color_temp_kelvin:3000,max_color_temp_kelvin:6500})],calendars:[item('calendar.school','Schulfrei')],shared_days:[],hue_scenes:[]};
  if(override)Object.assign(catalog,override);
  const calls=[],events=[];let created=null,prepared=null,fail=false;
- const editor=document.createElement(manager?'wecker-manager-day-manager':'wecker-manager-card-editor');
+ const editor=document.createElement(alarms?'wecker-manager-alarm-manager':manager?'wecker-manager-day-manager':'wecker-manager-card-editor');
  editor.directSave=direct;
- editor.setConfig({type:'custom:wecker-manager-card',alarm_id:'new_alarm',card_id:'new_card',owner_id:'',speakers:[],covers:[],lights:[],calendar_entity:'',sunrise_minutes:0,...config});
+ if(!alarms)editor.setConfig({type:'custom:wecker-manager-card',alarm_id:'new_alarm',card_id:'new_card',owner_id:'',speakers:[],covers:[],lights:[],calendar_entity:'',sunrise_minutes:0,...config});
  editor.addEventListener('config-changed',e=>events.push(clone(e.detail.config)));
  editor.hass={user:{id:'admin',is_admin:true},connection:{async subscribeEvents(){return ()=>{}}},states:{},async callWS(msg){calls.push(clone(msg));
   if(msg.action==='get')return clone(created||{exists:false,can_create:true});
+  if(msg.action==='list_cards'){if(fail)throw Error('Dashboard konnte nicht geladen werden');return {cards:clone(storedCards),usage_checked_at:'2026-11-13T15:00:00Z'};}
+  if(msg.action==='delete_card'){if(fail)throw Error('Löschen fehlgeschlagen');const index=storedCards.findIndex(card=>card.alarm_id===msg.alarm_id&&card.card_id===msg.card_id&&card.revision===msg.revision);if(index<0||!storedCards[index].can_delete)throw Error('Wecker wird verwendet');storedCards.splice(index,1);return {deleted:true};}
   if(msg.action==='setup_status')return clone(prepared||{pending:false});
   if(msg.action==='prepare_setup'){
    if(fail)throw Error('Box ist offline');const {days,name,...binding}=msg.config;
@@ -48,7 +50,7 @@ function setup({config={},catalog:override,manager=false,direct=true}={}){
  const weekdays=values=>{for(const input of editor.shadowRoot.querySelectorAll('#day-weekdays input')){input.checked=values.includes(Number(input.value));input.toggleAttribute('checked',input.checked);input.dispatchEvent(new window.Event('change',{bubbles:true}));}};
  const addDay=(name='Frühdienst')=>{click('day-add');change('day-name',name);weekdays([0,1,2,3,4]);click('day-save');return events.at(-1).days.at(-1).id;};
  const music=async()=>{if(!editor._config.days.length)addDay();click('setup-next');change('wake-owner','max');await flush();await pick('speakers',['media_player.max']);};
- return {editor,catalog,calls,events,click,change,pick,music,addDay,weekdays,window,get created(){return created},saveDashboard(){created=clone(prepared.preview);prepared=null;},set fail(v){fail=v}};
+ return {editor,catalog,storedCards,calls,events,click,change,pick,music,addDay,weekdays,window,get created(){return created},saveDashboard(){created=clone(prepared.preview);prepared=null;},set fail(v){fail=v}};
 }
 test('configuration starts empty and requires explicitly chosen names and weekdays',async()=>{
  const e=setup();await flush();
@@ -173,4 +175,20 @@ test('deleting an unused type names and confirms the exact stored alarms without
  const day={id:'unused',name:'Unbenutzt',icon:'mdi:alarm',weekdays:[0],calendar_entity:'',calendar_mode:'no_event',revision:2,uses:0,stored_uses:1,unassigned:[{name:'Alter Entwurf',alarm_id:'old_alarm',card_id:'old_card'}]};
  const e=setup({manager:true,catalog:{shared_days:[day]}});await flush();e.click('template-delete');assert.match(e.editor._templateConfirm.textContent,/Alter Entwurf/);assert(!e.calls.some(call=>call.action==='delete_day_template'));e.editor._templateConfirm.close();assert.equal(e.catalog.shared_days.length,1);
  e.click('template-delete');e.click('template-confirm-delete');await flush();assert.deepEqual(e.calls.find(call=>call.action==='delete_day_template').remove_cards,[{alarm_id:'old_alarm',card_id:'old_card'}]);assert.equal(e.catalog.shared_days.length,0);e.editor.remove();
+});
+test('alarm manager filters unused records, confirms deletion, retains errors and keeps day templates',async()=>{
+ const card={alarm_id:'old_alarm',card_id:'old_card',revision:7,name:'Alter Wecker',owner:'Maximilian',days:['Schultag 06:12'],speakers:['Schlafzimmer'],dashboards:[],can_delete:true,blocked_reason:''};
+ const used={...card,alarm_id:'live_alarm',card_id:'live_card',name:'Aktueller Wecker',dashboards:['Kinder'],can_delete:false,blocked_reason:'Zuerst aus den Karten entfernen.'};
+ const e=setup({alarms:true,storedCards:[card,used],catalog:{shared_days:[{id:'shared',name:'Schultag'}]}});await flush();
+ assert.match(e.editor._body.textContent,/Alter Wecker/);assert.doesNotMatch(e.editor._body.textContent,/Aktueller Wecker/);assert.match(e.editor._body.textContent,/Zuletzt geprüft/);
+ e.click('stored-filter','[data-filter="all"]');assert.match(e.editor._body.textContent,/Aktueller Wecker/);assert(e.editor.shadowRoot.querySelector('[data-action="stored-delete"][data-alarm="live_alarm"]').disabled);
+ e.click('stored-delete','[data-alarm="old_alarm"]');assert.match(e.editor._confirm.textContent,/Alter Wecker/);assert.match(e.editor._confirm.textContent,/Tagestypen bleiben erhalten/);e.editor._confirm.close();assert.equal(e.storedCards.length,2);assert(!e.calls.some(call=>call.action==='delete_card'));
+ e.fail=true;e.click('stored-delete','[data-alarm="old_alarm"]');e.click('stored-confirm-delete');await flush();assert.match(e.editor._body.textContent,/Löschen fehlgeschlagen/);assert.equal(e.storedCards.length,2);
+ e.fail=false;e.click('stored-delete','[data-alarm="old_alarm"]');e.click('stored-confirm-delete');await flush();assert.equal(e.storedCards.length,1);assert.equal(e.catalog.shared_days.length,1);assert.deepEqual(e.calls.find(call=>call.action==='delete_card'),{type:'wecker_manager/card',action:'delete_card',alarm_id:'old_alarm',card_id:'old_card',revision:7});
+ e.click('stored-filter','[data-filter="unused"]');assert.match(e.editor._body.textContent,/Keine ungenutzten Wecker/);e.editor.remove();
+});
+test('alarm manager refreshes usage and removes administrator data when the user changes',async()=>{
+ const card={alarm_id:'old_alarm',card_id:'old_card',revision:1,name:'Privater Wecker',owner:'Manuel',days:[],speakers:[],dashboards:[],can_delete:true};
+ const e=setup({alarms:true,storedCards:[card]});await flush();Object.assign(e.storedCards[0],{dashboards:['Familie'],can_delete:false});e.click('stored-refresh');await flush();assert.match(e.editor._body.textContent,/Keine ungenutzten Wecker/);e.click('stored-filter','[data-filter="all"]');assert(e.editor.shadowRoot.querySelector('[data-action="stored-delete"]').disabled);
+ const before=e.calls.length;e.editor.hass={...e.editor._hass,user:{id:'paul',is_admin:false}};await flush();assert.match(e.editor._body.textContent,/nur Administratoren/);assert.doesNotMatch(e.editor._body.textContent,/Privater Wecker/);assert.equal(e.calls.length,before);assert.equal(e.editor.shadowRoot.querySelectorAll('button:not(dialog button)').length,0);e.editor.remove();
 });

@@ -1,3 +1,13 @@
+# Wecker 1.9.0
+
+- Neue eigenständige **Weckerverwaltung unter Zahnrad → Wecker verwalten**. Standardmäßig werden ungenutzte Wecker angezeigt; **Alle** zeigt auch die verwendeten. Name, Benutzer, Tagestypen mit Zeiten, Boxen und aktuelle Kartenverwendung erleichtern die Auswahl.
+- Ungenutzte Wecker lassen sich einzeln über den Papierkorb und **Wecker löschen** entfernen. Gemeinsame Tagestypen bleiben erhalten. Die passende Musikzuordnung und offene Entwürfe dieses Weckers werden mit bereinigt.
+- **Aktualisieren** liest die aktuelle Dashboardverwendung. Dashboard- und Statuskarten sowie laufende Weckvorgänge oder Musikstopps schützen vor dem Löschen. Vor der Löschung werden Verwendung und Revision serverseitig erneut geprüft.
+- Die Verwaltung ist nur für Administratoren sichtbar. Auch ohne bereits eingerichtete Weckerkarte ist sie über den Kartenplatzhalter erreichbar.
+- Bestehende Wecker, Gerätebindungen, Berechtigungen und HA UI Kit 1.4.1 bleiben erhalten.
+
+**Update:** In HACS Wecker aktualisieren, Home Assistant neu starten und den Browser mit Strg+F5 neu laden. Danach **Zahnrad → Wecker verwalten → Ungenutzte → Papierkorb** verwenden. Ein Music-Manager-Update ist dafür nicht erforderlich.
+
 # Wecker 1.8.0
 
 - **Ungenutzte Tagestypen wieder löschbar:** Nach **Aktualisieren** zählen aktuelle Dashboard- und Statuskarten. Alte Weckereinträge ohne Karte blockieren das Löschen nicht mehr. Die Löschbestätigung zeigt genau die Wecker, die zusammen mit dem ungenutzten Typ entfernt werden. Auch ihre passenden Music-Manager-Weckerzuordnungen werden bereinigt; andere Tagestypen bleiben erhalten.
