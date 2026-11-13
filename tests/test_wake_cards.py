@@ -56,6 +56,13 @@ class WakeCardTests(IsolatedAsyncioTestCase):
         sys.modules[core.__name__] = core
         events = types.ModuleType('homeassistant.helpers.event')
         events.async_track_time_change = Mock(return_value=Mock())
+        events.async_call_later = Mock(return_value=Mock())
+        from enum import StrEnum
+        class RepeatMode(StrEnum):
+            OFF='off'
+            ONE='one'
+            ALL='all'
+        models=types.ModuleType('music_assistant_models.enums');models.RepeatMode=RepeatMode;sys.modules[models.__name__]=models
         sys.modules[events.__name__] = events
         sys.modules['homeassistant.util'] = types.ModuleType('homeassistant.util')
         dt = types.ModuleType('homeassistant.util.dt')
@@ -717,3 +724,95 @@ class WakeCardTests(IsolatedAsyncioTestCase):
         self.assertFalse(any(call.args[0]=='scene' or call.args[2].get('entity_id')=='light.unselected' for call in hass.services.async_call.await_args_list))
         self.assertEqual({call.args[2]['entity_id'] for call in hass.services.async_call.await_args_list if call.args[0]=='light'},{'light.one','light.two'})
         self.assertIn('fehlgeschlagen',str(error.exception))
+
+    async def test_playback_policy_is_owned_validated_and_independent_of_other_settings(self):
+        hass,entry,owner,admin,other,c,_,_=self.fixture();data=await self.wake.create_card(hass,admin,c)
+        self.assertEqual(data['playback'],{'mode':'duration','minutes':5})
+        original=deepcopy(data['settings'])
+        for minutes in [0,1441,True,1.5]:
+            with self.assertRaises(self.wake.AccessError):await self.wake.set_playback(hass,owner,c['alarm_id'],c['card_id'],{'mode':'duration','minutes':minutes})
+        with self.assertRaises(self.wake.AccessError):await self.wake.set_playback(hass,other,c['alarm_id'],c['card_id'],{'mode':'duration','minutes':9})
+        data=await self.wake.set_playback(hass,owner,c['alarm_id'],c['card_id'],{'mode':'duration','minutes':9})
+        self.assertEqual(data['settings'],original);self.assertEqual(data['binding'],c)
+        await self.wake.update_card(hass,owner,c['alarm_id'],c['card_id'],original,data['revision'])
+        self.assertEqual(entry.options['wake_cards'][c['alarm_id']]['playback']['minutes'],9)
+
+    async def test_fixed_duration_repeats_on_all_bound_queues_and_stops_at_the_actual_deadline(self):
+        hass,entry,owner,admin,_,c,_,_=self.fixture();await self.activate(hass,admin,c)
+        await self.wake.set_playback(hass,owner,c['alarm_id'],c['card_id'],{'mode':'duration','minutes':9})
+        record=entry.options['wake_cards'][c['alarm_id']];self.events.async_call_later.reset_mock()
+        await self.wake.execute(hass,entry,record,owner,'schultag','wake')
+        repeats=hass.mass.player_queues.set_repeat.await_args_list
+        self.assertEqual({call.args[0] for call in repeats},{'RINCON_AABBCCDDEEFF01400','RINCON_11223344556601400'});self.assertTrue(all(call.args[1]=='one' for call in repeats))
+        self.assertEqual(self.events.async_call_later.call_args.args[1],540)
+        self.assertTrue(all(call.kwargs['radio_mode'] is False for call in hass.mass.player_queues.play_media.await_args_list))
+        type(self).now+=timedelta(minutes=9,seconds=-1);hass.services.async_call.reset_mock();await self.wake.stop_due(hass,entry,c['alarm_id'],entry.options['wake_cards'][c['alarm_id']],owner)
+        hass.services.async_call.assert_not_awaited()
+        callback=self.events.async_call_later.call_args.args[2];type(self).now+=timedelta(seconds=1);await callback(self.now)
+        stops=[call.args[2]['entity_id'] for call in hass.services.async_call.await_args_list if call.args[1]=='media_stop'];self.assertEqual(set(stops),set(c['speakers']));self.assertEqual(entry.options['wake_cards'][c['alarm_id']]['stops'],[])
+        self.assertTrue(all(call.args[1]=='off' for call in hass.mass.player_queues.set_repeat.await_args_list[-2:]))
+
+    async def test_title_end_uses_a_single_non_repeating_track_and_has_no_forced_cutoff(self):
+        hass,entry,owner,admin,_,c,_,_=self.fixture();await self.activate(hass,admin,c)
+        await self.wake.set_playback(hass,owner,c['alarm_id'],c['card_id'],{'mode':'track_end','minutes':5})
+        record=entry.options['wake_cards'][c['alarm_id']];await self.wake.execute(hass,entry,record,owner,'schultag','wake')
+        self.assertEqual(entry.options['wake_cards'][c['alarm_id']]['stops'],[]);self.assertFalse(self.wake.runtime(hass)['stop_timers'])
+        self.assertTrue(all(call.args[1]=='off' for call in hass.mass.player_queues.set_repeat.await_args_list))
+        type(self).now+=timedelta(hours=1);hass.services.async_call.reset_mock();await self.wake.stop_due(hass,entry,c['alarm_id'],entry.options['wake_cards'][c['alarm_id']],owner);hass.services.async_call.assert_not_awaited()
+        store=hass.user_stores[owner.id].data['music_manager_alarm_music'];store[c['alarm_id']]={'kind':'radio','uri':'media-source://radio_browser/swr3','media_type':'radio','title':'SWR3'}
+        with self.assertRaises(self.wake.AccessError):await self.wake.set_playback(hass,owner,c['alarm_id'],c['card_id'],{'mode':'track_end','minutes':5})
+        with self.assertRaises(self.wake.AccessError):await self.wake.play_speaker(hass,entry,record,owner,c['speakers'][0])
+
+    async def test_pending_music_deadlines_are_restored_after_restart_and_failed_stops_are_retried(self):
+        hass,entry,owner,admin,_,c,_,_=self.fixture();await self.activate(hass,admin,c);await self.wake.execute(hass,entry,entry.options['wake_cards'][c['alarm_id']],owner,'schultag','wake')
+        hass.data.pop(self.wake.RUNTIME);type(self).now+=timedelta(minutes=6);self.events.async_call_later.reset_mock();self.wake.async_setup_wake_cards(hass)
+        self.assertEqual(self.events.async_call_later.call_args.args[1],0);callback=self.events.async_call_later.call_args.args[2]
+        hass.services.async_call.side_effect=RuntimeError('Offline');await callback(self.now);self.assertTrue(entry.options['wake_cards'][c['alarm_id']]['stops']);self.assertEqual(self.events.async_call_later.call_args.args[1],15)
+        hass.services.async_call.side_effect=None;await self.events.async_call_later.call_args.args[2](self.now);self.assertFalse(entry.options['wake_cards'][c['alarm_id']]['stops'])
+        self.wake.async_unload_wake_cards(hass);self.assertFalse(self.wake.runtime(hass).get('stop_timers'))
+
+    async def test_day_identity_display_name_and_usage_are_independent(self):
+        hass,entry,owner,admin,other,c,_,_=self.fixture();c['name']='Maximilians Wecker';c['days']=[self.custom_day(name='Schultag Kinder',display_name='Schultag',calendar_entity='')]
+        first=await self.activate(hass,admin,c,kind='arbeit',time='07:23');self.add_other_account(hass,other)
+        await self.wake.create_card(hass,admin,{**c,'name':'Pauls Wecker','alarm_id':'paul','card_id':'paul','owner_id':other.id,'days':first['days']})
+        shared=(await self.wake.catalog(hass,admin))['shared_days'][0];self.assertEqual(shared['display_name'],'Schultag');self.assertEqual({item['name'] for item in shared['used_by']},{'Maximilians Wecker','Pauls Wecker'})
+        raw={key:shared[key] for key in self.wake.shared_days.COMMON};raw.update(id=shared['id'],name='Wochentag Kinder')
+        await self.wake.save_day_template(hass,admin,raw,shared['revision']);record=entry.options['wake_cards'][c['alarm_id']]
+        self.assertEqual(record['days'][0]['name'],'Wochentag Kinder');self.assertEqual(record['days'][0]['display_name'],'Schultag');self.assertEqual(record['settings']['types']['arbeit']['time'],'07:23')
+        with self.assertRaises(self.wake.AccessError):await self.wake.save_day_template(hass,admin,{**raw,'id':'duplicate','weekdays':[6]},0)
+        await self.wake.save_day_template(hass,admin,{**raw,'id':'separate','name':'Schultag Erwachsene','weekdays':[6]},0)
+        self.assertEqual(len((await self.wake.catalog(hass,admin))['shared_days']),2)
+
+    async def test_legacy_ambiguous_names_gain_unique_identifiers_without_changing_card_labels(self):
+        shared=self.wake.shared_days
+        hass,entry,owner,admin,_,c,_,_=self.fixture();c['days']=[self.custom_day(calendar_entity='')];first=await self.wake.create_card(hass,admin,c)
+        other=deepcopy(entry.options['wake_cards'][c['alarm_id']]);other['binding']['alarm_id']='other';other['days'][0].update(template_id='another',weekdays=[6]);other['days'][0].pop('display_name',None)
+        entry.options['day_templates']['another']={**self.template(id='another',calendar_entity='',weekdays=[6]),'revision':1};entry.options['wake_cards']['other']=other
+        templates,cards,_=shared.migrate(entry.options);self.assertEqual(len({item['name'].casefold() for item in templates.values()}),2);self.assertEqual(cards['other']['days'][0]['display_name'],'Arbeit')
+        _,again,changed=shared.migrate({'day_templates':templates,'wake_cards':cards});self.assertEqual(again,cards);self.assertFalse(changed)
+
+    def hue_action_bridge(self,hass,states):
+        self.add_hue_scene(hass,states,'scene.room',('light.one','light.two','light.extra'))
+        actions=[NS(target=NS(rid=id_),action=NS(on=NS(on=True),dimming=NS(brightness=brightness),color=None,color_temperature=None,dynamics=None)) for id_,brightness in [('one',35),('two',60),('extra',90)]]
+        api=NS(scenes={'scene.room':NS(actions=actions)},lights=NS(update=AsyncMock()))
+        async def request(call):await call
+        bridge=NS(api=api,async_request_call=request);hass.config_entries.async_get_entry=Mock(return_value=NS(runtime_data=bridge));hass.registry.async_get_entity_id=lambda domain,platform,rid:'light.'+rid
+        return bridge
+
+    async def test_hue_scene_selection_and_execution_are_scoped_to_each_individual_light(self):
+        hass,entry,owner,admin,_,c,states,_=self.fixture();bridge=self.hue_action_bridge(hass,states)
+        c['lights'][0]['hue_scene']='scene.room';data=await self.wake.create_card(hass,admin,c)
+        self.assertEqual(data['binding']['lights'][0]['hue_scene'],'scene.room')
+        catalog=await self.wake.catalog(hass,admin,owner.id);self.assertEqual(catalog['hue_scenes'][0]['lights'],['light.one','light.two'])
+        await self.wake.execute(hass,entry,entry.options['wake_cards'][c['alarm_id']],owner,'wochenende','wake')
+        bridge.api.lights.update.assert_awaited_once();call=bridge.api.lights.update.await_args;self.assertEqual(call.args[0],'one');self.assertEqual(call.args[1].dimming.brightness,35)
+        self.assertTrue(any(call.args[0]=='light' and call.args[2]['entity_id']=='light.two' for call in hass.services.async_call.await_args_list));self.assertFalse(any(call.args[0]=='scene' for call in hass.services.async_call.await_args_list))
+        owner.permissions=NS(check_entity=lambda entity_id,policy:entity_id!='light.one')
+        with self.assertRaises(self.wake.AccessError):self.wake.checked_light_scene(hass,owner,None,'scene.room','light.one')
+
+    async def test_per_light_hue_sunrise_uses_the_selected_scene_values_and_transition(self):
+        hass,entry,owner,admin,_,c,states,_=self.fixture();bridge=self.hue_action_bridge(hass,states);c['lights'][0]['hue_scene']='scene.room';await self.wake.create_card(hass,admin,c)
+        record=entry.options['wake_cards'][c['alarm_id']];record['settings']['types']['schultag']['sunrise_minutes']=10
+        module=types.ModuleType('aiohue.v2.models.feature');module.DynamicsFeaturePut=lambda **kwargs:NS(**kwargs)
+        with patch.dict(sys.modules,{'aiohue.v2.models.feature':module}),patch.object(self.wake.asyncio,'sleep',new=AsyncMock()):await self.wake.execute(hass,entry,record,owner,'schultag','sunrise')
+        self.assertEqual(bridge.api.lights.update.await_args.args[1].dynamics.duration,599000);self.assertEqual(bridge.api.lights.update.await_args.args[0],'one')

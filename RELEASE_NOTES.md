@@ -1,3 +1,14 @@
+# Wecker 1.7.0
+
+- Direkt in der Weckmusikauswahl sind feste Minuten oder **Wenn Titel endet** wählbar. Bei fester Dauer wird der gewählte Titel auf allen zugeordneten Boxen bis zum Ablauf wiederholt. **Dauer übernehmen** ändert die Dauer auch ohne neue Titelwahl. Bestehende Wecker starten weiterhin mit fünf Minuten.
+- Die Abschaltzeit wird dauerhaft gespeichert und über einen eigenen Timer geplant. Nach einem Neustart wird sie wiederhergestellt; fehlgeschlagene Stopps bleiben für einen erneuten Versuch gespeichert. Beim Titelende spielt die einzelne Music-Assistant-Queue mit ausgeschalteter Wiederholung vollständig aus. Live-Radio benötigt eine feste Dauer.
+- Tagestypen besitzen einen eindeutigen **Namen** für Verwaltung und Auswahl sowie einen **Anzeigenamen** auf der Weckerkarte. Beim Update bleiben vorhandene Beschriftungen und persönliche Zeiten erhalten. Mehrdeutige bisherige Verwaltungsnamen erhalten einen Zusatz.
+- Der Verwendungsnachweis nennt die Weckerkarten und Benutzer, die einen Tagestyp verwenden. Er steht in der Verwaltung und beim Bearbeiten eines gemeinsamen Typs.
+- Hue-Szenen werden **je Lampe im Lampendialog** gewählt. Nur deren gespeicherte Lichtwerte werden auf diese Lampe beziehungsweise die ausgewählte Lichtgruppe angewendet. Weitere Lampen derselben Hue-Szene werden nicht mitgeschaltet. Auch Sonnenaufgang und vorhandene gemeinsame Hue-Szenen bleiben unterstützt.
+- Eine Ausführung innerhalb der nächsten 24 Stunden wird durch einen sehr leicht blauen Hintergrund des gesamten Weckerbereichs markiert. Alle Symbole bleiben blau. Die Versionsanzeige bleibt unten in den Einstellungen.
+
+**Update:** Music Manager auf **2.2.1** und Wecker auf **1.7.0** aktualisieren, Home Assistant neu starten und den Browser vollständig neu laden (Strg+F5). Die YAML bestehender Statuskarten bleibt verwendbar.
+
 # Wecker 1.6.1
 
 - Die kompakte Statuskarte zeigt je Tagestyp zusätzlich die aktuell eingestellte Weckzeit im Format HH:MM. Die Zeit bleibt auch bei ausgeschaltetem Wecker sichtbar und aktualisiert sich zusammen mit dem Status automatisch.

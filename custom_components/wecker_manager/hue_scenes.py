@@ -1,5 +1,6 @@
 """Resolve Hue scene scope from HA groups or the Hue integration's cached API."""
 from homeassistant.helpers import entity_registry as er
+from copy import deepcopy
 
 
 def light_members(hass, entity_id, seen=None):
@@ -65,3 +66,35 @@ def covered_lights(hass, lights, scene_id):
     if any(group & members and not group <= members for group in selected.values()):
         return None
     return {entity_id for entity_id, group in selected.items() if group and group <= members}
+
+
+def light_actions(hass, scene_id, light_id):
+    """Read the scene's cached actions for this light only, never recall a room."""
+    registry = er.async_get(hass)
+    entry = registry.async_get(scene_id)
+    state = hass.states.get(scene_id)
+    members = light_members(hass, light_id)
+    if not members or not entry or entry.platform != "hue" or entry.disabled_by or not state or state.state == "unavailable" or "is_active" in state.attributes:
+        return None
+    try:
+        bridge = hass.config_entries.async_get_entry(entry.config_entry_id).runtime_data
+        scene = bridge.api.scenes[entry.unique_id]
+        actions = {}
+        for item in scene.actions:
+            member = registry.async_get_entity_id("light", "hue", item.target.rid)
+            if member in members:
+                actions[member] = (item.target.rid, deepcopy(item.action))
+        if set(actions) != members:
+            return None
+        return bridge, actions
+    except (AttributeError, KeyError, TypeError):
+        return None
+
+
+async def apply_light_actions(bridge, actions, transition=None):
+    for resource, original in actions.values():
+        action = deepcopy(original)
+        if transition is not None:
+            from aiohue.v2.models.feature import DynamicsFeaturePut
+            action.dynamics = DynamicsFeaturePut(duration=round(transition * 1000))
+        await bridge.async_request_call(bridge.api.lights.update(resource, action))

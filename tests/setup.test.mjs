@@ -131,16 +131,20 @@ test('central day management saves common rules only, retains failed drafts, and
  e.click('day-edit','[data-kind="shared"]');assert.equal(e.editor.shadowRoot.querySelector('#day-music,#day-confirm'),null);e.change('day-name','Schule');
  e.fail=true;e.click('day-save');await flush();assert.match(e.editor.shadowRoot.querySelector('#setup-day-error').textContent,/fehlgeschlagen/);assert(e.editor._dayDialog.open);
  e.fail=false;e.click('day-save');await flush();assert.equal(e.catalog.shared_days[0].name,'Schule');
- const save=e.calls.findLast(call=>call.action==='save_day_template');assert.deepEqual(Object.keys(save.day_template).sort(),['id','name','icon','weekdays','calendar_entity','calendar_mode'].sort());assert.equal(save.revision,2);
+ const save=e.calls.findLast(call=>call.action==='save_day_template');assert.deepEqual(Object.keys(save.day_template).sort(),['id','name','display_name','icon','weekdays','calendar_entity','calendar_mode'].sort());assert.equal(save.revision,2);
  e.click('day-add');e.change('day-name','Spätdienst');e.weekdays([5,6]);e.click('day-save');await flush();const day=e.catalog.shared_days[1];
  e.click('template-delete',`[data-kind="${day.id}"]`);assert.equal(e.calls.filter(call=>call.action==='delete_day_template').length,0);
  e.click('template-confirm-delete');await flush();assert.equal(e.catalog.shared_days.length,1);assert.equal(e.calls.find(call=>call.action==='delete_day_template').revision,1);e.editor.remove();
 });
-test('Hue scenes are scoped to selected lamps and removing a lamp clears an incompatible scene',async()=>{
+test('Hue scenes are edited per lamp and keep other lights independent',async()=>{
  const light=(id,attributes={})=>({id,label:id,attributes:{supported_color_modes:['rgb'],...attributes}});
- const e=setup({catalog:{lights:[light('light.one'),light('light.two'),light('light.three'),light('light.group',{is_hue_group:true,entity_id:['light.one','light.two']})],hue_scenes:[{id:'scene.one',label:'Entspannen',members:['light.one']},{id:'scene.both',label:'Sonnenlicht',members:['light.one','light.two']},{id:'scene.extra',label:'Zusätzliches Zimmer',members:['light.one','light.three']}]}});await flush();await e.music();e.click('setup-next');e.click('setup-next');
- await e.pick('lights',['light.one','light.two']);const selector=e.editor.shadowRoot.querySelector('#wake-hue-scene');assert.equal(selector.options.length,3);assert(!selector.textContent.includes('Zusätzliches Zimmer'));
- e.change('wake-hue-scene','scene.both');assert.equal(e.events.at(-1).hue_scene,'scene.both');assert.equal(e.editor.shadowRoot.querySelectorAll('[data-action="device-open"]').length,0);assert.match(e.editor.shadowRoot.querySelector('.setup-list').textContent,/Hue-Szene: Sonnenlicht/);
- e.click('setup-next');assert.match(e.editor.shadowRoot.querySelector('#setup-page').textContent,/Hue-Szene: Sonnenlicht/);e.click('setup-back');e.click('device-remove','[data-index="1"]');assert.equal(e.events.at(-1).hue_scene,'');
- await e.pick('lights',['light.group']);assert(!e.editor.shadowRoot.querySelector('#wake-hue-scene').querySelector('[value="scene.one"]'));assert(e.editor.shadowRoot.querySelector('#wake-hue-scene').querySelector('[value="scene.both"]'));e.editor.remove();
+ const e=setup({catalog:{lights:[light('light.one'),light('light.two')],hue_scenes:[{id:'scene.one',label:'Entspannen',members:['light.one','light.unselected'],lights:['light.one']},{id:'scene.two',label:'Sonnenlicht',members:['light.two'],lights:['light.two']}]}});await flush();await e.music();e.click('setup-next');e.click('setup-next');
+ await e.pick('lights',['light.one','light.two']);assert.equal(e.editor.shadowRoot.querySelector('#wake-hue-scene'),null);
+ e.click('device-open','[data-kind="lights"][data-index="0"]');assert.equal(e.editor.shadowRoot.querySelector('#setup-hue-scene').options.length,2);e.change('setup-hue-scene','scene.one');e.click('device-cancel');assert(!e.events.at(-1).lights[0].hue_scene);
+ e.click('device-open','[data-kind="lights"][data-index="0"]');e.change('setup-hue-scene','scene.one');e.click('device-save');assert.equal(e.events.at(-1).lights[0].hue_scene,'scene.one');assert(!e.events.at(-1).lights[1].hue_scene);assert.equal(e.editor.shadowRoot.querySelectorAll('[data-action="device-open"]').length,2);
+ e.click('device-open','[data-kind="lights"][data-index="1"]');assert(!e.editor.shadowRoot.querySelector('#setup-hue-scene [value="scene.one"]'));e.change('setup-hue-scene','scene.two');e.click('device-save');e.click('setup-next');assert.match(e.editor.shadowRoot.querySelector('#setup-page').textContent,/Entspannen/);assert.match(e.editor.shadowRoot.querySelector('#setup-page').textContent,/Sonnenlicht/);e.editor.remove();
+});
+test('day names identify a template while its independent display name is preserved',async()=>{
+ const e=setup();await flush();const id=e.addDay('Schultag Maximilian');e.click('day-edit',`[data-kind="${id}"]`);e.change('day-display-name','Schultag');e.click('day-save');assert.equal(e.events.at(-1).days[0].display_name,'Schultag');
+ e.click('day-edit',`[data-kind="${id}"]`);e.change('day-name','Schultag Paul');e.click('day-save');assert.equal(e.events.at(-1).days[0].name,'Schultag Paul');assert.equal(e.events.at(-1).days[0].display_name,'Schultag');e.editor.remove();
 });

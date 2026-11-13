@@ -8,12 +8,13 @@ from ..music_manager.access import AccessError
 from .day_types import day_definitions, settings_for_days
 
 LIBRARY = "day_templates"
-COMMON = ("name", "icon", "weekdays", "calendar_entity", "calendar_mode")
+COMMON = ("name", "display_name", "icon", "weekdays", "calendar_entity", "calendar_mode")
 
 
 def common(day):
-    result = {key: deepcopy(day[key]) for key in COMMON}
+    result = {key: deepcopy(day.get(key, day["name"]) if key == "display_name" else day[key]) for key in COMMON}
     result["name"] = result["name"].strip()
+    result["display_name"] = result["display_name"].strip()
     result["weekdays"] = sorted(result["weekdays"])
     if not result["calendar_entity"]:
         result["calendar_mode"] = "no_event"
@@ -35,6 +36,7 @@ def migrate(options):
     cards = deepcopy(options.get("wake_cards", {}))
     by_rule, aliases = {}, {}
     for key, template in list(templates.items()):
+        template.update(common(template))
         rule = signature(template)
         if rule in by_rule:
             canonical = by_rule[rule]
@@ -43,6 +45,16 @@ def migrate(options):
             del templates[key]
         else:
             by_rule[rule] = key
+    names = set()
+    for template in templates.values():
+        original, count = template["name"], 1
+        while template["name"].casefold() in names:
+            count += 1
+            template["name"] = original[:53] + f" ({count})"
+        if template["name"] != original:
+            template["revision"] += 1
+        names.add(template["name"].casefold())
+        by_rule[signature(template)] = template["id"]
     changed = []
     for alarm_id, record in cards.items():
         days = day_definitions(record)
@@ -59,6 +71,13 @@ def migrate(options):
             if key not in templates:
                 templates[key] = {"id": key, **common(day), "revision": 1}
                 by_rule[signature(day)] = key
+                original, count = templates[key]["name"], 1
+                while templates[key]["name"].casefold() in names:
+                    count += 1
+                    templates[key]["name"] = original[:53] + f" ({count})"
+                names.add(templates[key]["name"].casefold())
+                by_rule[signature(templates[key])] = key
+            day.update(common(templates[key]))
             day["template_id"] = key
             day["template_revision"] = templates[key]["revision"]
             modified = modified or day != old
@@ -78,6 +97,10 @@ def apply(templates, cards, alarm_id, record, days):
     edits = {}
     used = set()
     for day in days:
+        if not day.get("template_id") and alarm_id in cards:
+            prior = next((item for item in day_definitions(cards[alarm_id]) if item["id"] == day["id"]), None)
+            if prior and prior.get("template_id"):
+                day.update(template_id=prior["template_id"], template_revision=prior["template_revision"])
         matching = next((key for key, item in templates.items() if signature(item) == signature(day)), None)
         key = day.get("template_id") or matching or template_id(day)
         if key not in templates and day.get("template_id"):
@@ -88,6 +111,8 @@ def apply(templates, cards, alarm_id, record, days):
         if key in used:
             raise AccessError("invalid_config", "Ein gemeinsamer Tagestyp kann pro Karte nur einmal übernommen werden.")
         used.add(key)
+        if any(other != key and item["name"].casefold() == day["name"].strip().casefold() for other, item in templates.items()):
+            raise AccessError("name_in_use", "Dieser Name ist bereits vergeben. Bitte einen eindeutigen Namen wählen; der Anzeigename darf gleich sein.")
         previous = templates.get(key)
         if previous and common(previous) != common(day):
             if not day.get("template_id"):
