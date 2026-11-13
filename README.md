@@ -2,18 +2,18 @@
 
 ![Wecker](custom_components/wecker_manager/brand/icon.png)
 
-Eigenständige Home-Assistant-Integration mit Dashboardkarte mit **eigenen Tagestypen**, zum Beispiel Schultag, Wochenende und Ferien. Version **1.3.0**, gemeinsames **HA UI Kit 1.4.1**.
+Eigenständige Home-Assistant-Integration mit Dashboardkarte mit **eigenen Tagestypen**, zum Beispiel Schultag, Wochenende und Ferien. Version **1.3.1**, gemeinsames **HA UI Kit 1.4.1**.
 
 ## Funktionen
 
 - Uhrzeit antippen und mit getrennten Stunden-/Minuten-Drehrädern ändern. Touch, Maus und Tastatur; Übernehmen/Abbrechen.
-- Bis zu zwölf Tagestypen mit eigenem Namen, Symbol und Wochentagen. Die bekannten drei Typen sind als Vorlage vorhanden.
+- Bis zu zwölf Tagestypen mit eigenem Namen, Symbol und Wochentagen. Neue Einrichtungen starten leer; Name, Symbol und Wochentage werden selbst gewählt.
 - Je Typ: Musik immer an oder schaltbar, Ausschalten per Klick oder nur mit Bestätigung und optional ein eigener Kalender.
-- In der Karte wählen: bei einem ganztägigen Termin oder bei freiem Kalender. Termine mit Uhrzeit werden ignoriert.
+- Im Setup je Typ wählen: freie oder gebuchte Kalendertage. Nur ganztägige Termine zählen; die Karte enthält dafür kein Auswahlfeld.
 - Pro Tagestyp null bis drei Schnellzeiten in den Einstellungen.
 - Gemeinsame Musiklautstärke von **5 bis 15 %** für alle gewählten Boxen.
 - Sonnenaufgang pro Tagestyp in den Weckereinstellungen ein-/ausschalten und die Vorlaufzeit wählen. Er verwendet die fest zugeordneten dimmbaren Lampen und deren Zielhelligkeit.
-- Kompakte Ansicht mit Symbolen, grauen Schnellzeiten nebeneinander und getrennter Anzeige **Morgen ist …**.
+- Kompakte Ansicht mit unveränderten UI-Kit-Bedienelementen und Schnellzeiten nebeneinander. Kopfleiste im Setup: heute, morgen, eigener Text oder ausgeblendet.
 - Beim Anlegen genau **ein Musikkonto** und **mehrere Sonos-Boxen** festlegen.
 - **Mehrere Rollläden**, jeweils mit eigener Zielposition, und **mehrere Lichter** mit eigener Helligkeit, Farbtemperatur oder Farbe.
 - Konto und Geräte bleiben danach fest zugeordnet. Änderungen erfordern eine neu angelegte Karte mit neuer Kartenkennung.
@@ -30,7 +30,7 @@ Eigenständige Home-Assistant-Integration mit Dashboardkarte mit **eigenen Tages
 
 Der Music Manager wird als vorhandene Integration verwendet. Dieses Repository installiert ausschließlich `custom_components/wecker_manager`; es enthält und ersetzt keine Music-Manager-Installation. Die Dashboard-Ressource wird automatisch registriert.
 
-## Update auf 1.3.0
+## Update auf 1.3.1
 
 In HACS aktualisieren, Home Assistant neu starten und im Browser vollständig neu laden (**Strg+F5**). Vorhandene Karten, Geräte, Weckzeiten und Sonnenaufgangszeiten bleiben erhalten; der technische Kartentyp `custom:wecker-manager-card` bleibt gleich. Sonnenaufgang und Schnellzeiten werden pro Typ über das Zahnrad geändert. Als Administrator kannst du im Karteneditor **Tagestypen bearbeiten** wählen; die Gerätezuordnung bleibt dabei fest.
 
@@ -45,7 +45,7 @@ Die Integration liefert lokale Marketplace-Icons für Hell/Dunkel in 256 und 512
 | Maximilian | `m_wecker_schultag` | 5 Minuten |
 | Paul | `p_wecker_schultag` | Aus |
 
-Bereits vorhandene Karten behalten ihre Weckerkennung und alle Einstellungen. Bei manueller YAML-Konfiguration mit diesen Kennungen werden vorhandene Helferzeiten, Aktivierungen, Musikschalter und gespeicherte Wecklieder übernommen. Der Assistent verwaltet die Kennungen neuer Karten automatisch. Bei Schultag und Ferien jeweils **Schulfreie Tage** als Kalender wählen. In der Karte für Schultag **Kein ganztägiger Termin** und für Ferien **Ganztägiger Termin vorhanden** einstellen. Alte Wecker-Automationen werden nicht verändert. Deaktiviere den bisherigen Wecker bei einer Umstellung selbst. Zusätzliche unabhängige Lichtsignale bleiben bestehen.
+Bereits vorhandene Karten behalten ihre Weckerkennung und alle Einstellungen. Bei manueller YAML-Konfiguration mit diesen Kennungen werden vorhandene Helferzeiten, Aktivierungen, Musikschalter und gespeicherte Wecklieder übernommen. Der Assistent verwaltet die Kennungen neuer Karten automatisch. Bei Schultag und Ferien jeweils **Schulfreie Tage** als Kalender wählen. Im Setup für Schultag **Freie Kalendertage** und für Ferien **Gebuchte Kalendertage** einstellen. Alte Wecker-Automationen werden nicht verändert. Deaktiviere den bisherigen Wecker bei einer Umstellung selbst. Zusätzliche unabhängige Lichtsignale bleiben bestehen.
 
 Neue unabhängige Wecker benötigen keine YAML-Helfer oder YAML-Automationen und beginnen ausgeschaltet.
 

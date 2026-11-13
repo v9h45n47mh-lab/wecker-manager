@@ -169,9 +169,12 @@ def validate_settings(raw, days=None):
             raise AccessError("invalid_config", "Je Weckertyp sind bis zu drei unterschiedliche Schnellzeiten erlaubt.")
         if day["music_mode"] == "always" and not item["music"]:
             raise AccessError("invalid_config", f"{day['name']} verwendet immer Musik.")
-        if item.get("calendar_mode", calendar_mode(kind)) not in ("event", "no_event"):
+        mode = day.get("calendar_mode", calendar_mode(kind))
+        if item.get("calendar_mode", mode) not in ("event", "no_event"):
             raise AccessError("invalid_config", "Bitte Termin vorhanden oder kein ganztägiger Termin auswählen.")
-        result["types"][kind] = {**deepcopy(item), "calendar_mode": item.get("calendar_mode", calendar_mode(kind))}
+        if "calendar_mode" in day and item.get("calendar_mode", day["calendar_mode"]) != day["calendar_mode"]:
+            raise AccessError("invalid_config", "Freie oder gebuchte Kalendertage werden im Setup des Tagestyps festgelegt.")
+        result["types"][kind] = {**deepcopy(item), "calendar_mode": item.get("calendar_mode", mode)}
         if "sunrise_minutes" in item:
             result["types"][kind]["sunrise_minutes"] = integer(item["sunrise_minutes"], 0, 30)
     return result
@@ -321,6 +324,22 @@ async def update_card(hass, caller, alarm_id, card_id, settings, revision, confi
         return snapshot(hass, updated)
 
 
+async def set_enabled(hass, caller, alarm_id, card_id, kind, enabled, confirm_disable=None):
+    """Persist one explicit switch intent without resubmitting stale settings."""
+    if type(enabled) is not bool or not isinstance(kind, str):
+        raise AccessError("invalid_config", "Bitte einen gültigen Tagestyp ein- oder ausschalten.")
+    async with runtime(hass)["lock"]:
+        entry, record, _ = await checked_record(hass, caller, alarm_id, card_id)
+        if kind not in {day["id"] for day in day_definitions(record)}:
+            raise AccessError("invalid_config", "Dieser Tagestyp ist nicht mehr vorhanden. Bitte erneut laden.")
+        settings = settings_for_days(record)
+        settings["types"][kind]["enabled"] = enabled
+        check_disable_confirmation(record, settings["types"], confirm_disable)
+        updated = {**record, "settings": settings, "revision": record["revision"] + 1}
+        save_record(hass, entry, alarm_id, updated)
+        return snapshot(hass, updated)
+
+
 def check_disable_confirmation(record, next_types, confirmed):
     confirmed = [] if confirmed is None else confirmed
     if not isinstance(confirmed, list) or any(not isinstance(item, str) for item in confirmed):
@@ -409,9 +428,12 @@ async def prepare_calendars(hass, record, owner, when, caller=None, *, force=Fal
     return [error for error in await asyncio.gather(*(load(entity) for entity in entities)) if error]
 
 
-async def tomorrow_info(hass, caller, alarm_id, card_id):
+async def tomorrow_info(hass, caller, alarm_id, card_id, day_offset=1):
+    if type(day_offset) is not int or day_offset not in (0, 1):
+        raise AccessError("invalid_config", "Bitte heute oder morgen für die Kopfleiste auswählen.")
     _, record, owner = await checked_record(hass, caller, alarm_id, card_id)
-    when = (dt_util.as_local(dt_util.utcnow()) + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
+    when = (dt_util.as_local(dt_util.utcnow()) + timedelta(days=day_offset)).replace(hour=0, minute=0, second=0, microsecond=0)
+    period = "Heute" if day_offset == 0 else "Morgen"
     await prepare_calendars(hass, record, owner, when, caller, include_disabled=True)
     matches, failed = [], False
     for day in day_definitions(record):
@@ -421,13 +443,13 @@ async def tomorrow_info(hass, caller, alarm_id, card_id):
         except AccessError:
             failed = True
     if not matches:
-        label = "Morgen: Kalender nicht erreichbar" if failed else "Morgen: kein passender Tagestyp"
+        label = period + (": Kalender nicht erreichbar" if failed else ": kein passender Tagestyp")
     elif len(matches) == 1:
         day = matches[0]
         defaults = {"schultag": "Schultag", "wochenende": "Wochenende", "ferien": "Ferien / schulfrei"}
-        label = ("Morgen ist schulfrei" if day["id"] == "ferien" else "Morgen ist " + day["name"]) if day["name"] == defaults.get(day["id"]) else "Morgen: " + day["name"]
+        label = (period + " ist schulfrei" if day["id"] == "ferien" else period + " ist " + day["name"]) if day["name"] == defaults.get(day["id"]) else period + ": " + day["name"]
     else:
-        label = "Morgen: " + ", ".join(day["name"] for day in matches)
+        label = period + ": " + ", ".join(day["name"] for day in matches)
     if matches and failed:
         label += " · Kalenderprüfung offen"
     return {"date": when.date().isoformat(), "kind": matches[0]["id"] if len(matches) == 1 else None,
@@ -436,7 +458,7 @@ async def tomorrow_info(hass, caller, alarm_id, card_id):
 
 @websocket_api.websocket_command({
     vol.Required("type"): "wecker_manager/card",
-    vol.Required("action"): vol.In(["catalog", "get", "create", "update", "day_info", "configure_days"]),
+    vol.Required("action"): vol.In(["catalog", "get", "create", "update", "set_enabled", "day_info", "configure_days"]),
     vol.Optional("alarm_id"): str,
     vol.Optional("card_id"): str,
     vol.Optional("owner_id"): str,
@@ -445,6 +467,9 @@ async def tomorrow_info(hass, caller, alarm_id, card_id):
     vol.Optional("revision"): int,
     vol.Optional("days"): list,
     vol.Optional("confirm_disable"): list,
+    vol.Optional("kind"): str,
+    vol.Optional("enabled"): bool,
+    vol.Optional("day_offset"): int,
 })
 @websocket_api.async_response
 async def websocket_wake_card(hass, connection, msg):
@@ -454,13 +479,15 @@ async def websocket_wake_card(hass, connection, msg):
             if action == "catalog":
                 result = await catalog(hass, connection.user, msg.get("owner_id"))
             elif action == "day_info":
-                result = await tomorrow_info(hass, connection.user, msg.get("alarm_id"), msg.get("card_id"))
+                result = await tomorrow_info(hass, connection.user, msg.get("alarm_id"), msg.get("card_id"), msg.get("day_offset", 1))
             elif action == "configure_days":
                 result = await configure_days(hass, connection.user, msg.get("alarm_id"), msg.get("card_id"), msg.get("days"), msg.get("revision"), msg.get("confirm_disable"))
             elif action == "create":
                 result = await create_card(hass, connection.user, msg.get("config"))
             elif action == "update":
                 result = await update_card(hass, connection.user, msg.get("alarm_id"), msg.get("card_id"), msg.get("settings"), msg.get("revision"), msg.get("confirm_disable"))
+            elif action == "set_enabled":
+                result = await set_enabled(hass, connection.user, msg.get("alarm_id"), msg.get("card_id"), msg.get("kind"), msg.get("enabled"), msg.get("confirm_disable"))
             else:
                 alarm_id, card_id = identifier(msg.get("alarm_id")), identifier(msg.get("card_id"))
                 entry = entry_for(hass)
@@ -490,8 +517,7 @@ def day_matches(hass, record, kind, when):
     cached = runtime(hass).setdefault("calendar_days", {}).get(calendar_key(record["binding"]["owner_id"], entity_id, when))
     if not cached or cached.get("error"):
         raise AccessError("calendar_unavailable", f"Kalender für {day['name']} nicht erreichbar; dieser Tagestyp ist pausiert.")
-    settings = record["settings"]["types"][kind]
-    return cached["event"] == (settings.get("calendar_mode", calendar_mode(kind)) == "event")
+    return cached["event"] == (day["calendar_mode"] == "event")
 
 
 def due_phases(hass, record, when, errors=None):
