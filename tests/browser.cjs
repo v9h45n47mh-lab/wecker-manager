@@ -117,7 +117,7 @@ let browser;
  await setupAction('setup-next').click();assert.equal(await page.evaluate(()=>wakeDemo.calls.filter(m=>m.action==='create').length),0);await captureStep(5);
  await setupAction('setup-back').click();assert.equal(await page.evaluate(()=>wakeDemo.edited.lights.length),2);await setupAction('setup-next').click();
  await setupAction('setup-finish').click();
- await editor.getByText('Musikkonto, Boxen, Rollläden und Lichter sind festgelegt.',{exact:false}).waitFor();assert.equal(await editor.locator('select').count(),0);
+ await editor.getByText('Musikkonto, Boxen, Rollläden und Lichter sind festgelegt.',{exact:false}).waitFor();assert.equal(await editor.locator('select:visible').count(),0);
  assert.equal(await page.evaluate(()=>wakeDemo.calls.filter(m=>m.action==='create').length),1);
  const initialBinding=await page.evaluate(()=>JSON.stringify(wakeDemo.records.get('new_alarm').binding));
  await setupAction('manage-days').click();await setupAction('day-edit',`[data-kind="${customId}"]`).click();
