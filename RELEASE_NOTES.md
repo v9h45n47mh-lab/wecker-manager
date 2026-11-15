@@ -1,9 +1,7 @@
-# Wecker 1.12.0
+# Wecker 1.13.0
 
-Rollenrechte: eigene Wecker ansehen, eigene Wecker bedienen/ändern und Wecker/Tagestypen verwalten. Echte HA-Administratorrechte und Gerätebindungen werden nicht verändert. Die Integration mit Music Manager bleibt erhalten.
+Eigenen Wecker verwalten bündelt Ansicht, Tagesinfo, Zeitvorschau, Bedienung und Änderungen eigener Wecker. Das zusätzliche Ansichtsrecht wird nicht mehr vorausgesetzt. Die feste Eigentümer-, Geräte- und Musikkonto-Zuordnung bleibt wirksam; fremde Wecker und Tagestypen benötigen weiterhin Verwaltungsrechte.
 
-Berechtigungen werden jetzt in **Family Access → Anwendung → Rolle** verwaltet. Benutzer können mehrere Rollen erhalten; ihre Freigaben ergänzen sich. Vorhandene Anwendungsrechte werden einmalig in Rollen mit dem Zusatz „übernommen“ importiert und den bisherigen Benutzern zugeordnet. Dashboardfreigaben und die Aktivierung der Dashboardnavigation werden dadurch nicht verändert.
+Ein altes reines Leserecht allein gewährt keine Bedienung. Bei Entzug des eigenen Verwaltungsrechts verschwinden angezeigte Weckzeiten und Bedienfelder; offene Dialoge schließen. Gespeicherte Wecker, Tagestypen und laufende Zeitpläne bleiben erhalten.
 
-Zum Entziehen eines Rechts alle zugewiesenen Rollen einschließlich übernommener Rollen prüfen. Neue Benutzer erhalten nach der Übernahme keine automatischen Anwendungsrechte. Echte HA-Administratoren behalten Vollzugriff zur Wiederherstellung. Geräte-, Eigentümer- und externe Kontoberechtigungen gelten zusätzlich; eine Rolle erzeugt keine HA-Administratorrechte.
-
-**Aktualisierung:** zuerst Family Access Manager 1.1.0 oder neuer, danach die beteiligten Anwendungen aktualisieren und Home Assistant neu starten. Solange Family Access nicht eingerichtet ist, bleibt die bisherige Rechtevergabe erhalten. Ist Family Access eingerichtet, aber nicht verfügbar oder zu alt, werden Anwendungsaktionen für normale Benutzer abgelehnt. Lokale Benutzer-/Personen-, Geräte- und Musikkontozuordnungen bleiben für Identität und Eigentum erhalten; Rechte werden zentral vergeben.
+Nach dem Update HA neu starten und Browser/App vollständig neu laden.

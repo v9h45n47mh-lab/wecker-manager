@@ -183,3 +183,14 @@ test('wake settings own playback duration, cancel drafts, and keep failed saves 
  e.fail=true;e.click('save-settings');await flush();assert(e.card._settingsDialog.open);assert.equal(e.record.playback.mode,'duration');assert.equal(e.card._draftPlayback.mode,'track_end');
  e.fail=false;e.click('save-settings');await flush();assert.equal(e.record.playback.mode,'track_end');assert(!e.card._settingsDialog.open);e.card.remove();
 });
+
+
+test('own-alarm management controls both visible times and controls after live revocation',async()=>{
+ for(const status of [false,true]){
+  const e=fixture({status});await flush();
+  e.card._familyAccess={view:false,use_own:true};e.card._render();assert.match(e.card._body.textContent,/0?6:12/);
+  e.card._familyAccess={view:true,use_own:false};e.card._render();assert.equal(e.card._body.textContent,'');
+  assert.match(e.card.shadowRoot.getElementById(status?'status-error':'wake-status').textContent,/Eigenen Wecker verwalten/);
+  e.card._familyAccess={view:false,use_own:true};await e.card._load(true);await flush();assert.match(e.card._body.textContent,/0?6:12/);e.card.remove();
+ }
+});

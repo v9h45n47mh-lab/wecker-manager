@@ -2,7 +2,9 @@
 
 ![Wecker](custom_components/wecker_manager/brand/icon.png)
 
-Home-Assistant-Integration mit vollständig bearbeitbaren Weckerkarten und gemeinsamen Tagestypen. Version **1.12.0**, unverändertes **HA UI Kit 1.4.1**.
+Home-Assistant-Integration mit vollständig bearbeitbaren Weckerkarten und gemeinsamen Tagestypen. Version **1.13.0**, unverändertes **HA UI Kit 1.4.1**.
+
+Eigene Wecker verwenden ein gemeinsames Recht **Eigenen Wecker verwalten** für Ansicht und Änderungen. Eigentümer-, Geräte- und Kontoprüfungen bleiben zusätzlich wirksam; Verwaltung fremder Wecker bleibt separat.
 
 ## Funktionen
 

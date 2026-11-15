@@ -276,6 +276,19 @@ let browser;
  assert.equal(await page.evaluate(()=>window.customCards.find(c=>c.type==='wecker-manager-card').name),'Wecker');
  await page.goto(url);await action('time').first().waitFor();
  await page.evaluate(()=>{wakeDemo.records.clear();wakeDemo.card.setConfig(wakeDemo.config);});await action('manage-alarms').waitFor();await action('manage-alarms').click();await card().locator('wecker-manager-alarm-manager').getByText('Keine ungenutzten Wecker vorhanden.',{exact:true}).waitFor();await page.keyboard.press('Escape');await page.goto(url);await action('time').first().waitFor();
+ await page.evaluate(()=>wakeDemo.switchUser('max'));await page.waitForFunction(()=>wakeDemo.card._data?.exists&&!wakeDemo.card._loading&&wakeDemo.card._hass.user.id==='max');
+ await page.evaluate(()=>{wakeDemo.card._familyAccess={view:false,use_own:true,manage:false};wakeDemo.card._render();});
+ assert.equal(await action('time').count(),3,'One own-alarm grant allows viewing and editing');
+ await action('settings').click();
+ await page.evaluate(()=>{wakeDemo.card._familyAccess={view:true,use_own:false,manage:false};wakeDemo.card._render();});
+ assert.equal(await card().locator('dialog[open]').count(),0,'Revocation closes editing dialogs');
+ assert.equal(await action('time').count(),0,'Revocation removes visible own-alarm controls and times');
+ for(const width of [1100,390,320])for(const dark of [false,true]){
+  await page.setViewportSize({width,height:1000});await page.evaluate(d=>document.body.classList.toggle('dark',d),dark);
+  await card().getByText('Eigenen Wecker verwalten ist für deine Rolle nicht freigegeben.',{exact:true}).waitFor();
+  await card().screenshot({path:path.join(screens,`own-alarm-revoked-${width}-${dark?'dark':'light'}.png`)});
+ }
+ await page.evaluate(async()=>{wakeDemo.card._familyAccess={view:false,use_own:true,manage:false};await wakeDemo.card._load(true);});await action('time').first().waitFor();
  await page.evaluate(()=>wakeDemo.switchUser('paul'));await card().getByRole('alert').waitFor();assert.equal(await action('time').count(),0);
  assert.deepEqual(errors,[]);console.log('PASS universal wake card: wheels, settings, fixed multi-device editor, account isolation, live sync, responsive theme/layout screenshots, guided day policies, calendar polarity, per-type confirmation and single-device dialogs');
 })().catch(error=>{console.error(error);process.exitCode=1;}).finally(async()=>{await browser?.close();server.close();});
