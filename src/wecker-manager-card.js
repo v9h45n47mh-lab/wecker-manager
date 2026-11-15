@@ -1,4 +1,4 @@
-import {UI_CSS, navigation, row, section, button, iconButton, filterButton, toggle, dialog, confirmDialog, field, selectField, rangeControl, multiSelect, whiteTemperatureControl, colourPicker, weekdayPicker, notice, loadingState, versionInfo, bindUI, escapeHtml} from './family-ui/1.4.1/family-ui.js';
+import {UI_CSS, icon, navigation, row, section, button, iconButton, filterButton, toggle, dialog, confirmDialog, field, selectField, rangeControl, multiSelect, whiteTemperatureControl, colourPicker, weekdayPicker, notice, loadingState, versionInfo, bindUI, escapeHtml} from './family-ui/1.4.1/family-ui.js';
 
 const CARD_VERSION='__WECKER_VERSION__';
 
@@ -17,7 +17,15 @@ const usageText = day => (list(day.used_by).length?'Verwendet in: '+usageNames(d
 const dayName = day => String(day.name||'').trim().toLocaleLowerCase();
 const dayRule = day => JSON.stringify([dayName(day),dayTitle(day),day.icon,[...day.weekdays].sort(),day.calendar_entity||'',day.calendar_entity?calendarMode(day):'no_event']);
 const existingDay = (days,day) => days.find(d=>day.template_id&&d.template_id===day.template_id)||days.find(d=>dayRule(d)===dayRule(day))||days.find(d=>dayName(d)===dayName(day));
-const wakeRow = (symbol,options,kind='') => `<div class="wake-row"><span class="wake-symbol${kind?' wake-day-symbol':''}"${kind?` data-wake-kind="${escapeHtml(kind)}" role="img"`:' aria-hidden="true"'}><ha-icon icon="${escapeHtml(symbol)}"></ha-icon></span>${row(options)}</div>`;
+const sunriseMinutes = (settings,kind,config={}) => Number(settings.types?.[kind]?.sunrise_minutes??(kind==='schultag'?(settings.sunrise_minutes??config.sunrise_minutes??0):0));
+const wakeRow = (symbol,options,kind='',sunrise=0) => {
+  let content=row(options);
+  if(sunrise>0){
+    const label=`Sonnenaufgang aktiviert · ${sunrise} Minute${sunrise===1?'':'n'} vor der Weckzeit`;
+    content=content.replace('</strong>',`<span class="wake-sunrise" role="img" aria-label="${escapeHtml(label)}" title="${escapeHtml(label)}" data-sunrise-minutes="${sunrise}">${icon('sunrise')}</span></strong>`);
+  }
+  return `<div class="wake-row"><span class="wake-symbol${kind?' wake-day-symbol':''}"${kind?` data-wake-kind="${escapeHtml(kind)}" role="img"`:' aria-hidden="true"'}><ha-icon icon="${escapeHtml(symbol)}"></ha-icon></span>${content}</div>`;
+};
 const displayTime = time => time.replace(/^0/,'');
 const WAKE_ID = /^[a-z0-9][a-z0-9_]{0,63}$/;
 const copy = value => JSON.parse(JSON.stringify(value));
@@ -90,6 +98,7 @@ class MusicManagerAlarmCard extends HTMLElement {
       .wake-type{min-width:0;border-top:1px solid var(--divider-color,#ddd)}.wake-row{display:grid;grid-template-columns:var(--fui-touch) minmax(0,1fr);gap:var(--fui-section-padding);align-items:center}
       .wake-symbol{display:grid;place-items:center;color:var(--primary-color,#03a9f4)}.wake-symbol ha-icon{display:block;width:var(--fui-icon);height:var(--fui-icon);--mdc-icon-size:var(--fui-icon)}
       .wake-day-symbol{color:var(--primary-color,#03a9f4)}.wake-type.active{background:color-mix(in srgb,var(--primary-color,#03a9f4) 14%,transparent);border-radius:8px}
+      .wake-sunrise{display:inline-flex;vertical-align:middle;margin-inline-start:6px;color:var(--primary-color,#03a9f4);--fui-icon:18px}
       #wake-legend{border-top:1px solid var(--divider-color,#ddd);padding-top:var(--fui-section-padding)}
       .wake-row>.setting-row{min-width:0}
       .wake-presets{display:flex;justify-content:flex-start;gap:8px;flex-wrap:wrap;padding:var(--fui-row-padding) 0 var(--fui-section-padding)}.wake-presets .filter-button{flex:0 0 auto;margin:0}.wake-presets:empty{display:none}
@@ -155,7 +164,7 @@ class MusicManagerAlarmCard extends HTMLElement {
     this.shadowRoot.getElementById('wake-status').innerHTML=(this._error?notice(this._error,{error:true})+button({label:'Erneut laden',action:'reload',disabled:busy}):'')+(this._data?.error?notice(this._data.error,{error:true}):'')+(this._loading&&!ready?loadingState('Wecker wird geladen …'):'')+(!ready&&this._data?.pending?notice('Einrichtung geprüft. Der Wecker wird nach dem Speichern der Dashboardkarte übernommen.'):!ready&&this._data?.can_create?notice('Öffne den Karteneditor und folge den Einrichtungsschritten.'): '')+(!ready&&this._data?.can_create&&this._hass?.user?.is_admin?button({label:'Wecker verwalten',action:'manage-alarms'}):'');
     this._body.innerHTML=ready?this._days().map(day=>{const kind=day.id,title=dayTitle(day);
       const settings=this._data.settings.types[kind];
-      return `<section class="wake-type" aria-label="${escapeHtml(title)}">${wakeRow(day.icon,{title:`${title} · ${settings.enabled?'An':'Aus'}`,description:weekdayText(day.weekdays),trailing:button({label:settings.enabled?'Ausschalten':'Einschalten',action:'enabled',data:{kind},disabled:busy})},kind)}${wakeRow('mdi:clock-outline',{title:'Uhrzeit',trailing:button({label:displayTime(settings.time),action:'time',data:{kind},disabled:busy})})}<div class="wake-presets" role="group" aria-label="${escapeHtml(title+' · Schnellzeiten')}">${settings.presets.map(time=>filterButton({label:time,action:'preset',selected:time===settings.time,data:{kind,time}}).replace('<button ',`<button${busy?' disabled':''} `)).join('')}</div>${day.music_mode==='switchable'?wakeRow('mdi:music-note',{title:'Mit Musik wecken',trailing:toggle({label:`Musik ${title}`,action:'music',checked:settings.music,iconOnly:true,disabled:busy,data:{kind}})}):''}</section>`;
+      return `<section class="wake-type" aria-label="${escapeHtml(title)}">${wakeRow(day.icon,{title:`${title} · ${settings.enabled?'An':'Aus'}`,description:weekdayText(day.weekdays),trailing:button({label:settings.enabled?'Ausschalten':'Einschalten',action:'enabled',data:{kind},disabled:busy})},kind,sunriseMinutes(this._data.settings,kind,this._config))}${wakeRow('mdi:clock-outline',{title:'Uhrzeit',trailing:button({label:displayTime(settings.time),action:'time',data:{kind},disabled:busy})})}<div class="wake-presets" role="group" aria-label="${escapeHtml(title+' · Schnellzeiten')}">${settings.presets.map(time=>filterButton({label:time,action:'preset',selected:time===settings.time,data:{kind,time}}).replace('<button ',`<button${busy?' disabled':''} `)).join('')}</div>${day.music_mode==='switchable'?wakeRow('mdi:music-note',{title:'Mit Musik wecken',trailing:toggle({label:`Musik ${title}`,action:'music',checked:settings.music,iconOnly:true,disabled:busy,data:{kind}})}):''}</section>`;
     }).join(''):'';
     this._renderDay();
     this.shadowRoot.getElementById('wake-legend').hidden=!ready;
@@ -168,7 +177,7 @@ class MusicManagerAlarmCard extends HTMLElement {
     const playback=this._draftPlayback;
     const duration=selectField({id:'wake-playback-mode',label:'Weckdauer',value:playback.mode,options:[{value:'duration',label:'Feste Dauer'},{value:'track_end',label:'Wenn Titel endet'}]})+(playback.mode==='duration'?field({id:'wake-playback-minutes',label:'Dauer in Minuten',type:'number',value:String(playback.minutes),min:1,max:1440,step:1,required:true,hint:'Ist die Dauer länger als der Titel, wird er bis zum Ablauf wiederholt.'}):notice('Der gewählte Titel wird einmal vollständig abgespielt. Für Live-Radio eine feste Dauer wählen.'));
     this.shadowRoot.getElementById('wake-settings').innerHTML=rangeControl({id:'wake-volume',label:'Musiklautstärke für alle Boxen',value:d.volume,min:5,max:15,step:1,allowKeep:false,action:'volume'})+section({id:'wake-playback',title:'Weckmusik',content:duration+'<p class="hint">Gilt für alle Tagestypen und Boxen dieser Weckerkarte.</p>'})+this._days().map(day=>{
-      const kind=day.id,item=d.types[kind],sunrise=item.sunrise_minutes??(kind==='schultag'?(d.sunrise_minutes??this._config.sunrise_minutes??0):0);
+      const kind=day.id,item=d.types[kind],sunrise=sunriseMinutes(d,kind,this._config);
       const durations=[...new Set([0,5,10,15,20,30,sunrise])].sort((a,b)=>a-b);
       const light=selectField({id:kind==='schultag'?'wake-sunrise-setting':'wake-sunrise-'+kind,label:'Sonnenaufgang',value:String(sunrise),disabled:!available&&!sunrise,options:durations.map(n=>({value:String(n),label:n?`${n} Minuten vor der Weckzeit`:'Aus'})),hint:available?'Die zugeordneten dimmbaren Lichter werden bis zur Weckzeit aufgeblendet.':'Hierfür wird eine zugeordnete dimmbare Lampe benötigt.'}).replace('<select ',`<select data-wake-sunrise="${escapeHtml(kind)}" `);
       return section({id:`presets-${kind}`,title:dayTitle(day),content:light+`<div><p class="hint">Bis zu drei Schnellzeiten</p>${item.presets.map((time,slot)=>`<div class="wake-preset-line">${button({label:time,action:'preset-edit',data:{kind,slot}})}${iconButton({icon:'trash',label:`Schnellzeit ${time} entfernen`,action:'preset-remove',data:{kind,slot}})}</div>`).join('')}${item.presets.length<3?button({label:'Zeit hinzufügen',icon:'add',action:'preset-add',data:{kind}}):''}</div>`});

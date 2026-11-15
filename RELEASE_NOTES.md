@@ -1,3 +1,11 @@
+# Wecker 1.11.0
+
+- Rechts neben dem Namen jedes Tagestyps erscheint ein kleines blaues Sonnenaufgangssymbol, wenn dessen Sonnenaufgangsfunktion eingeschaltet ist. Der Hinweis am Symbol nennt die eingestellten Minuten vor der Weckzeit.
+- Das Symbol wird direkt über `icon('sunrise')` aus dem eingebundenen HA UI Kit 1.4.1 bezogen. Das vorhandene gemeinsame Symbol benötigt keine Änderung am UI Kit.
+- Die Anzeige folgt den gespeicherten Einstellungen je Tagestyp und aktualisiert sich live. Abbrechen übernimmt keine Änderungen; ausgeschalteter Sonnenaufgang entfernt das Symbol. Bestehende Schultagsvorgaben bleiben berücksichtigt.
+
+**Update:** Wecker in HACS aktualisieren, Home Assistant neu starten und den Browser mit Strg+F5 neu laden.
+
 # Wecker 1.10.1
 
 - Die blaue Hinterlegung aktiver Tagestypen ist kräftiger: 14 % statt 6 % Deckkraft in Wecker- und Statuskarte. Sie kennzeichnet weiterhin ausschließlich Weckvorgänge innerhalb der nächsten 24 Stunden; alle Symbole bleiben blau.

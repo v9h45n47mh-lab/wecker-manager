@@ -1,4 +1,4 @@
-# Weckerkarte 1.10.1
+# Weckerkarte 1.11.0
 
 Die Integration führt Wecker zentral in Home Assistant aus. Dashboardkarten zeigen und ändern die zentral gespeicherten Daten. Der separat installierte Music Manager liefert die persönliche Musikauswahl.
 
@@ -103,3 +103,7 @@ Ein gespeicherter Wecker ohne passende Dashboardkarte wird gesondert als **weite
 Der Server prüft vor dem Löschen erneut alle Dashboardkarten und die bestätigten Weckerkennungen. Eine neu hinzugekommene Karte oder ein nicht lesbares Dashboard verhindert die Bereinigung. Aktuell laufende Weckaktionen und ausstehende Musikstopps müssen vor dem Bereinigen abgeschlossen sein. Die Prüfung selbst entfernt keine alten Programme automatisch.
 
 Unter allen Tagestypen der Weckerkarte steht die Legende: **Blau hinterlegt: aktiv in den nächsten 24 Stunden.**
+
+## Sonnenaufgang am Weckernamen erkennen
+
+Bei eingeschalteter Sonnenaufgangsfunktion steht ein kleines blaues Sonnenaufgangssymbol direkt rechts neben dem Tagestypnamen. Der Hinweis am Symbol nennt die eingestellte Vorlaufzeit. Bei **Sonnenaufgang → Aus** verschwindet es nach dem Speichern. Das Symbol kennzeichnet die gespeicherte Funktion, auch wenn der Wecker selbst ausgeschaltet ist; die blaue Hintergrundfläche bleibt die Anzeige für eine Ausführung in den nächsten 24 Stunden.
