@@ -55,6 +55,21 @@ test('wake settings contain volume, sunrise and at most three presets, never dev
  slider.value='15';slider.dispatchEvent(new e.window.Event('input',{bubbles:true}));await flush();assert.equal(e.record.settings.volume,10);
  e.click('preset-remove','[data-kind="schultag"][data-slot="0"]');e.click('save-settings');await flush();assert.equal(e.record.settings.volume,15);assert.deepEqual(e.record.settings.types.schultag.presets,['06:15']);e.card.remove();
 });
+
+test('sunrise indicators show saved per-day settings, preserve cancelled drafts and update live',async()=>{
+ const e=fixture();await flush();
+ const badge=kind=>e.card.shadowRoot.querySelector(`[data-wake-kind="${kind}"]`).closest('.wake-row').querySelector('.row-text strong .wake-sunrise');
+ assert.equal(e.card.shadowRoot.querySelectorAll('.wake-sunrise').length,1);assert.equal(badge('schultag').dataset.sunriseMinutes,'5');assert.equal(badge('schultag').querySelector('svg').dataset.icon,'sunrise');assert.equal(badge('wochenende'),null);
+ e.click('settings');const field=e.card.shadowRoot.querySelector('#wake-sunrise-setting');for(const option of field.options)option.toggleAttribute('selected',option.value==='0');field.dispatchEvent(new e.window.Event('change',{bubbles:true}));e.click('cancel-settings');await flush();assert.equal(badge('schultag').dataset.sunriseMinutes,'5');
+ e.click('settings');const saved=e.card.shadowRoot.querySelector('#wake-sunrise-setting');for(const option of saved.options)option.toggleAttribute('selected',option.value==='0');saved.dispatchEvent(new e.window.Event('change',{bubbles:true}));e.click('save-settings');await flush();assert.equal(badge('schultag'),null);
+ e.remoteChange(record=>{record.settings.types.wochenende.sunrise_minutes=10;record.settings.types.wochenende.enabled=false;});await flush();assert.equal(badge('wochenende').dataset.sunriseMinutes,'10');assert.match(badge('wochenende').getAttribute('aria-label'),/10 Minuten vor der Weckzeit/);assert.equal(badge('ferien'),null);
+ e.remoteChange(record=>{record.settings.types.wochenende.sunrise_minutes=0;});await flush();assert.equal(e.card.shadowRoot.querySelectorAll('.wake-sunrise').length,0);e.card.remove();
+});
+
+test('custom day sunrise indicators use their own setting without inheriting a school default',async()=>{
+ const e=fixture({days:[{id:'fruehdienst',name:'Frühdienst',display_name:'Früh < & >',icon:'mdi:alarm',weekdays:[0],music_mode:'always',calendar_entity:''}],settings:{types:{fruehdienst:{time:'05:00',enabled:true,music:true,presets:[]}}}});await flush();assert.equal(e.card.shadowRoot.querySelector('.wake-sunrise'),null);
+ e.remoteChange(record=>{record.settings.types.fruehdienst.sunrise_minutes=1;});await flush();const title=e.card.shadowRoot.querySelector('.wake-row .row-text strong');assert.match(title.textContent,/Früh < & > · An/);assert.equal(title.querySelectorAll('.wake-sunrise').length,1);assert.match(title.querySelector('.wake-sunrise').title,/1 Minute vor der Weckzeit/);assert.equal(title.querySelector('svg').dataset.icon,'sunrise');e.card.remove();
+});
 test('school disable requires confirmation and save failure retains the previous state',async()=>{
  const e=fixture();await flush();e.click('enabled','[data-kind="schultag"]');await flush();assert.equal(e.card.shadowRoot.getElementById('wake-confirm-dialog').open,true);assert.equal(e.record.settings.types.schultag.enabled,true);
  e.fail=true;e.click('confirm-disable');await flush();assert.equal(e.record.settings.types.schultag.enabled,true);assert.equal(e.card.shadowRoot.getElementById('wake-confirm-dialog').open,true);

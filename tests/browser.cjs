@@ -28,6 +28,7 @@ let browser;
   assert.equal(await card().locator('[data-wake-calendar],.wake-calendar-rule').count(),0);
   assert.equal(await card().locator('[data-wake-kind][data-next-active="true"]').count(),1);
   const symbolColours=await card().locator('[data-wake-kind]').evaluateAll(els=>els.map(el=>getComputedStyle(el).color));assert.equal(new Set(symbolColours).size,1);assert.equal(await card().locator('.wake-type.active').count(),1);assert.equal(new Set(await card().locator('.wake-type').evaluateAll(els=>els.map(el=>getComputedStyle(el).backgroundColor))).size,2);
+  const sunriseBadge=card().locator('.wake-row .row-text strong .wake-sunrise');assert.equal(await sunriseBadge.count(),1);assert.equal(await sunriseBadge.getAttribute('data-sunrise-minutes'),'5');assert.equal(await sunriseBadge.locator('svg[data-icon="sunrise"]').count(),1);assert.equal(await sunriseBadge.evaluate(el=>getComputedStyle(el).color),await card().locator('.wake-day-symbol').first().evaluate(el=>getComputedStyle(el).color));assert.equal(await sunriseBadge.locator('svg').evaluate(el=>el.getBoundingClientRect().width),18);
   const legendStyle=await card().locator('#wake-legend').evaluate(el=>{const s=getComputedStyle(el);return {border:s.borderTopWidth,style:s.borderTopStyle,padding:s.paddingTop};});assert.equal(legendStyle.border,'1px');assert.equal(legendStyle.style,'solid');assert(parseFloat(legendStyle.padding)>0);
   const styleDifferences=await page.evaluate(async()=>{
    const ui=await import('/src/family-ui/1.4.1/family-ui.js'),host=document.createElement('div'),root=host.attachShadow({mode:'open'});
@@ -72,17 +73,17 @@ let browser;
  await action('settings').click();const settings=card().locator('#wake-settings-dialog');
  const slider=settings.locator('#wake-volume');assert.equal(await slider.getAttribute('min'),'5');assert.equal(await slider.getAttribute('max'),'15');
  assert.equal(await settings.locator('select').count(),4);assert(await settings.locator('#wake-sunrise-setting').isVisible());assert.equal(await settings.locator('[data-ui-multi]').count(),0);
- assert(await settings.evaluate(el=>el.getBoundingClientRect().width<=480));assert.match(await settings.locator('.version-info').innerText(),/Wecker 1\.10\.1/);
+ assert(await settings.evaluate(el=>el.getBoundingClientRect().width<=480));assert.match(await settings.locator('.version-info').innerText(),/Wecker 1\.11\.0/);
  assert(await settings.locator('#wake-settings').evaluate(el=>el.lastElementChild.classList.contains('version-info')));
  await slider.press('End');await settings.locator('#wake-sunrise-setting').selectOption('15');
  await settings.locator('[data-action="preset-remove"][data-kind="schultag"]').first().click();
  await settings.getByRole('button',{name:'Speichern',exact:true}).click();await settings.waitFor({state:'hidden'});
  assert.equal(await page.evaluate(()=>wakeDemo.records.get(wakeDemo.config.alarm_id).settings.volume),15);
- assert.equal(await page.evaluate(()=>wakeDemo.records.get(wakeDemo.config.alarm_id).settings.sunrise_minutes),15);
+ assert.equal(await page.evaluate(()=>wakeDemo.records.get(wakeDemo.config.alarm_id).settings.sunrise_minutes),15);assert.equal(await card().locator('.wake-sunrise').getAttribute('data-sunrise-minutes'),'15');
  assert.equal(await page.evaluate(()=>wakeDemo.config.sunrise_minutes),5);
  await action('settings').click();await settings.locator('#wake-sunrise-setting').selectOption('0');
  await settings.getByRole('button',{name:'Abbrechen',exact:true}).click();
- assert.equal(await page.evaluate(()=>wakeDemo.records.get(wakeDemo.config.alarm_id).settings.sunrise_minutes),15);
+ assert.equal(await page.evaluate(()=>wakeDemo.records.get(wakeDemo.config.alarm_id).settings.sunrise_minutes),15);assert.equal(await card().locator('.wake-sunrise').getAttribute('data-sunrise-minutes'),'15');
  assert.equal(await action('preset').filter({hasText:'05:55'}).count(),0);
  await page.evaluate(()=>wakeDemo.remoteChange(record=>record.settings.types.ferien.time='11:42'));
  await page.waitForFunction(()=>wakeDemo.card.shadowRoot.querySelector('[data-action="time"][data-kind="ferien"]').textContent==='11:42');
@@ -97,6 +98,8 @@ let browser;
   await action('time').first().click();assert(await time.isVisible());assert(await time.evaluate(el=>el.getBoundingClientRect().right<=innerWidth));
   await page.screenshot({path:path.join(screens,`wake-time-${width}-${dark?'dark':'light'}.png`),fullPage:true});await page.keyboard.press('Escape');
  }
+ await action('settings').click();await settings.locator('#wake-sunrise-setting').selectOption('0');await settings.locator('#wake-sunrise-wochenende').selectOption('10');await settings.getByRole('button',{name:'Speichern',exact:true}).click();await settings.waitFor({state:'hidden'});assert.equal(await card().locator('.wake-sunrise').count(),1);assert.equal(await card().locator('.wake-sunrise').getAttribute('data-sunrise-minutes'),'10');assert.equal(await card().locator('.wake-type[aria-label="Schultag"] .wake-sunrise').count(),0);
+ for(const width of [1100,390,320])for(const dark of [false,true]){await page.setViewportSize({width,height:1100});await page.evaluate(d=>document.body.classList.toggle('dark',d),dark);assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));await card().screenshot({path:path.join(screens,`sunrise-indicator-weekend-${width}-${dark?'dark':'light'}.png`)});}
  await page.setViewportSize({width:390,height:1000});await page.goto(url+'?editor=1&setup_only=1');const editor=page.locator('wecker-manager-card-editor');await editor.locator('[data-action="day-add"]').waitFor();
  const setupAction=(name,extra='')=>editor.locator(`[data-action="${name}"]${extra}`);
  const pick=async(kind,ids)=>{

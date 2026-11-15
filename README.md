@@ -2,7 +2,7 @@
 
 ![Wecker](custom_components/wecker_manager/brand/icon.png)
 
-Home-Assistant-Integration mit vollständig bearbeitbaren Weckerkarten und gemeinsamen Tagestypen. Version **1.10.1**, unverändertes **HA UI Kit 1.4.1**.
+Home-Assistant-Integration mit vollständig bearbeitbaren Weckerkarten und gemeinsamen Tagestypen. Version **1.11.0**, unverändertes **HA UI Kit 1.4.1**.
 
 ## Funktionen
 
@@ -15,6 +15,7 @@ Home-Assistant-Integration mit vollständig bearbeitbaren Weckerkarten und gemei
 - Zusätzliche kompakte **Wecker-Status**-Karte: Name, Tagessymbole, An/Aus und die eingestellte Weckzeit. Zum Beispiel Maximilian und Paul nebeneinander: [Anleitung und YAML](docs/STATUSKARTE.md).
 - Ein-/Ausschalten mit optionaler Bestätigung, Stunden-/Minutenräder und bis zu drei Schnellzeiten je Typ. Änderungen werden zentral gespeichert.
 - **Leicht blauer Hintergrund des gesamten Weckerbereichs:** Der aktivierte Wecker ist innerhalb der nächsten 24 Stunden fällig. Alle Symbole sind blau. Kalenderregeln, Wochentage, erledigte Ausführungen und Zeitumstellungen werden berücksichtigt.
+- Ein kleines blaues Sonnenaufgangssymbol neben dem Tagestypnamen zeigt eine eingeschaltete Sonnenaufgangsfunktion; der Hinweis nennt die Vorlaufzeit. Das Symbol stammt direkt aus dem gemeinsamen UI Kit.
 - Unter dem Zahnrad: Weckdauer (feste Minuten oder Titelende), Lautstärke 5–15 %, Schnellzeiten und Sonnenaufgang je Tagestyp. Der schmale Dialog zeigt die Versionsnummer.
 - Administratoren können über **Gesamte Karte bearbeiten** oder im Karteneditor Konto, Boxen, Rollläden, Licht und Tagestypen ändern, ohne die Karte neu anzulegen.
 - Genau ein persönliches Musikkonto pro Karte und mehrere Sonos-Boxen. Mehrere Rollläden mit Zielposition sowie mehrere Lichter mit Helligkeit/Farbtemperatur/Farbe sind möglich.
