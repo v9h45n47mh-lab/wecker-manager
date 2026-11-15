@@ -1,4 +1,4 @@
-/* Wecker 1.12.0 | MIT | HA UI Kit 1.4.1 bundled unchanged */
+/* Wecker 1.13.0 | MIT | HA UI Kit 1.4.1 bundled unchanged */
 const WeckerManagerUI=(()=>{
 /* HA UI Kit 1.4.1 | MIT | Source priority: Shutter, Light, Essensplaner, Haushalt, Spuelmaschine, Access */
 const UI_VERSION = "1.4.1";
@@ -590,7 +590,7 @@ function releaseFamilyAccess(host){host._familyAccessUnsub?.();host._familyAcces
 
 const {UI_CSS, icon, navigation, row, section, button, iconButton, filterButton, toggle, dialog, confirmDialog, field, selectField, rangeControl, multiSelect, whiteTemperatureControl, colourPicker, weekdayPicker, notice, loadingState, versionInfo, bindUI, escapeHtml} = WeckerManagerUI;
 
-const CARD_VERSION='1.12.0';
+const CARD_VERSION='1.13.0';
 
 const defaultDays = (calendar='') => [
   {id:'schultag',name:'Schultag',icon:'mdi:school',weekdays:[0,1,2,3,4],music_mode:'always',confirm_disable:true,calendar_entity:calendar},
@@ -748,6 +748,11 @@ class MusicManagerAlarmCard extends HTMLElement {
   _days(){return this._data?.days||defaultDays(this._config?.calendar_entity||'');}
   _render(){
     if(!this._body)return;
+    if(this._familyAccess&&!this._familyAccess.use_own&&!this._hass?.user?.is_admin&&!this._hass?.user?.is_owner){
+      for(const modal of this.shadowRoot.querySelectorAll('dialog[open]'))modal.close();
+      for(const id of ['wake-header','wake-settings','wake-music'])this.shadowRoot.getElementById(id)?.replaceChildren();
+      this._music=null;this._body.replaceChildren();this.shadowRoot.getElementById('wake-status').innerHTML=notice('Eigenen Wecker verwalten ist für deine Rolle nicht freigegeben.');return;
+    }
     const busy=this._busy||this._loading||Boolean(this._familyAccess&&!this._familyAccess.use_own&&!this._hass?.user?.is_admin),ready=this._data?.exists;
     const settingsButton=iconButton({icon:'settings',label:'Wecker-Einstellungen',action:'settings',disabled:busy||!ready});
     this.shadowRoot.getElementById('wake-header').innerHTML=settingsButton;
@@ -1288,6 +1293,7 @@ class WeckerManagerStatusCard extends MusicManagerAlarmCard {
   _accept(data){if(data.exists)this._config={...this._config,...copy(data.binding)};this._data=data;this._dayKey=null;this._loadDay();}
   _render(){
     if(!this._body)return;this.shadowRoot.getElementById('status-title').textContent=this._config.name||this._data?.name||'Wecker';
+    if(this._familyAccess&&!this._familyAccess.use_own&&!this._hass?.user?.is_admin&&!this._hass?.user?.is_owner){this._body.replaceChildren();this.shadowRoot.getElementById('status-error').innerHTML=notice('Eigenen Wecker verwalten ist für deine Rolle nicht freigegeben.');return;}
     this.shadowRoot.getElementById('status-error').innerHTML=this._error?notice(this._error,{error:true})+button({label:'Erneut laden',action:'reload'}):this._loading&&!this._data?.exists?loadingState('Wird geladen …'):!this._data?.exists&&this._data?notice('Die zugehörige Weckerkarte wurde nicht gefunden. Bitte Alarm-ID und Karten-ID prüfen.'):'';
     this._body.innerHTML=this._data?.exists?this._days().map(day=>{const item=this._data.settings.types[day.id],on=item?.enabled,time=item?.time;return `<div class="status-line" data-status-kind="${escapeHtml(day.id)}" aria-label="${escapeHtml(dayTitle(day)+' · '+(on?'An':'Aus')+(time?' · '+time+' Uhr':''))}"><span class="wake-symbol" data-wake-kind="${escapeHtml(day.id)}" role="img"><ha-icon icon="${escapeHtml(day.icon)}"></ha-icon></span><span class="status-dot${on?' on':''}" aria-hidden="true"></span><span>${on?'An':'Aus'}</span><time class="status-time"${time?` datetime="${escapeHtml(time)}"`:''}>${escapeHtml(time||'–')}</time></div>`;}).join(''):'';this._renderDay();
   }

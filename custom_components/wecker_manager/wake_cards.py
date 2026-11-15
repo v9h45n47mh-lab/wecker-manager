@@ -176,6 +176,7 @@ def checked_light_scene(hass, owner, caller, scene_id, light_id):
 
 
 async def checked_record(hass, caller, alarm_id, card_id, permission="use_own"):
+    permission = "use_own" if permission == "view" else permission
     entry = entry_for(hass)
     record = entry.options.get(KEY, {}).get(identifier(alarm_id))
     if not record or record["binding"]["card_id"] != identifier(card_id):
@@ -775,7 +776,7 @@ async def prepare_calendars(hass, record, owner, when, caller=None, *, force=Fal
 async def tomorrow_info(hass, caller, alarm_id, card_id, day_offset=1):
     if type(day_offset) is not int or day_offset not in (0, 1):
         raise AccessError("invalid_config", "Bitte heute oder morgen für die Kopfleiste auswählen.")
-    _, record, owner = await checked_record(hass, caller, alarm_id, card_id, permission="view")
+    _, record, owner = await checked_record(hass, caller, alarm_id, card_id, permission="use_own")
     when = (dt_util.as_local(dt_util.utcnow()) + timedelta(days=day_offset)).replace(hour=0, minute=0, second=0, microsecond=0)
     period = "Heute" if day_offset == 0 else "Morgen"
     await prepare_calendars(hass, record, owner, when, caller, include_disabled=True)
@@ -802,7 +803,7 @@ async def tomorrow_info(hass, caller, alarm_id, card_id, day_offset=1):
 
 async def upcoming_info(hass, caller, alarm_id, card_id):
     """Actual upcoming wakes in 24 elapsed hours, using the scheduler's rules."""
-    _, record, owner = await checked_record(hass, caller, alarm_id, card_id, permission="view")
+    _, record, owner = await checked_record(hass, caller, alarm_id, card_id, permission="use_own")
     now = dt_util.utcnow().astimezone(timezone.utc)
     until = now + timedelta(hours=24)
     local_now, local_end = dt_util.as_local(now), dt_util.as_local(until)
@@ -869,7 +870,7 @@ async def websocket_wake_card(hass, connection, msg):
     try:
         async with asyncio.timeout(45):
             action = msg["action"]
-            permission='view' if action in {'get','day_info','upcoming'} else 'use_own' if action in {'update','set_enabled','set_playback'} else 'manage'
+            permission='use_own' if action in {'get','day_info','upcoming','update','set_enabled','set_playback'} else 'manage'
             if not allows(hass,connection.user,DOMAIN,permission,True if permission!='manage' else connection.user.is_admin,audit=True):raise AccessError('unauthorized','Diese Weckerfunktion ist für deine Rolle nicht freigegeben.')
             if action == "catalog":
                 result = await catalog(hass, connection.user, msg.get("owner_id"), refresh_usage=msg.get("refresh_usage", False))
@@ -919,7 +920,7 @@ async def websocket_wake_card(hass, connection, msg):
                     result = {"exists": False, "can_create": allows(hass,connection.user,DOMAIN,"manage",connection.user.is_admin), "pending": bool(pending), "replaces_card": bool(record), "error": runtime(hass)["errors"].get(card_id, "")}
                 else:
                     if not allows(hass,connection.user,DOMAIN,'manage',connection.user.is_admin):
-                        _, record, _ = await checked_record(hass, connection.user, alarm_id, card_id, permission="view")
+                        _, record, _ = await checked_record(hass, connection.user, alarm_id, card_id, permission="use_own")
                     result = snapshot(hass, record)
             result["can_manage"]=allows(hass,connection.user,DOMAIN,"manage",connection.user.is_admin)
             connection.send_result(msg["id"], result)

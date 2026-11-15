@@ -15,16 +15,27 @@ from music_fixture import load_gateway
 
 
 class WakeCardTests(IsolatedAsyncioTestCase):
-    async def test_central_manager_and_view_only_keep_native_user_identity(self):
-        hass, entry, owner, admin, _, config, *_ = self.fixture()
-        grants={'view':True,'use_own':True,'manage':True}
+    async def test_one_own_alarm_grant_covers_read_edit_and_ownership_without_ha_admin(self):
+        hass, entry, owner, admin, other, config, *_ = self.fixture()
+        grants={'view':False,'use_own':True,'manage':True}
         hass.data['family_access_manager']=NS(application_protocol=1,application_permissions=lambda u,a:dict(grants))
         await self.wake.create_card(hass,owner,config)
         self.assertFalse(owner.is_admin)
-        grants.update(use_own=False,manage=False)
+        grants['manage']=False
         await self.wake.checked_record(hass,owner,config['alarm_id'],config['card_id'],permission='view')
+        connection=NS(user=owner,send_result=Mock(),send_error=Mock())
+        message={'id':1,'action':'get','alarm_id':config['alarm_id'],'card_id':config['card_id']}
+        await self.wake.websocket_wake_card(hass,connection,message)
+        connection.send_error.assert_not_called();connection.send_result.assert_called_once()
         with self.assertRaises(self.wake.AccessError):
-            await self.wake.checked_record(hass,owner,config['alarm_id'],config['card_id'])
+            await self.wake.checked_record(hass,other,config['alarm_id'],config['card_id'])
+        grants.update(view=True,use_own=False)
+        for action in ['get','day_info','upcoming','update','set_enabled','set_playback']:
+            connection.send_result.reset_mock();connection.send_error.reset_mock()
+            await self.wake.websocket_wake_card(hass,connection,{**message,'action':action})
+            connection.send_result.assert_not_called();connection.send_error.assert_called_once()
+        with self.assertRaises(self.wake.AccessError):
+            await self.wake.checked_record(hass,owner,config['alarm_id'],config['card_id'],permission='view')
         with self.assertRaises(self.wake.AccessError):self.wake.require_admin(owner,hass)
 
     async def test_radio_wake_plays_on_all_bound_speakers_without_ma_and_retains_stop_deadline(self):

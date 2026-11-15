@@ -1,5 +1,9 @@
 # Änderungen
 
+## 1.13.0
+
+Eigenen Wecker verwalten bündelt Ansicht, Tagesinfo, Zeitvorschau, Bedienung und Änderungen eigener Wecker. Das zusätzliche Ansichtsrecht wird nicht mehr vorausgesetzt. Die feste Eigentümer-, Geräte- und Musikkonto-Zuordnung bleibt wirksam; fremde Wecker und Tagestypen benötigen weiterhin Verwaltungsrechte.
+
 ## 1.12.0
 
 Rollenrechte: eigene Wecker ansehen, eigene Wecker bedienen/ändern und Wecker/Tagestypen verwalten. Echte HA-Administratorrechte und Gerätebindungen werden nicht verändert. Die Integration mit Music Manager bleibt erhalten.
