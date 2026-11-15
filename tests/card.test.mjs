@@ -21,7 +21,7 @@ function fixture({days,settings:override,header,status=false,admin=false,upcomin
  const record={exists:true,binding:clone(config),settings:clone(settings),revision:1,...(days?{days:clone(days)}:{})},calls=[],listeners=new Set();delete record.binding.type;
  let fail=false,user='max';
  const connection={async subscribeEvents(callback){listeners.add(callback);return ()=>listeners.delete(callback);}};
- const hass=()=>({user:{id:user,is_admin:admin},connection,states:{},async callWS(msg){calls.push(clone(msg));
+ const hass=()=>({user:{id:user,is_admin:admin},connection,states:{},async callWS(msg){if(msg.type==='family_access/application_permissions')return {permissions:{view:true,use_own:true,manage:this.user.is_admin}};calls.push(clone(msg));
   if(user!=='max'&&msg.type==='wecker_manager/card')throw {code:'unauthorized',message:'Anderer Benutzer'};
   if(msg.type==='music_manager/alarm')return {owner:'Maximilian',source:'Box',selection:{title:'TOP STRIKER'},songs:[]};
   if(msg.action==='day_info')return {date:'2026-11-14',kind:'wochenende',label:msg.day_offset===0?'Heute ist Schultag':'Morgen ist Wochenende'};

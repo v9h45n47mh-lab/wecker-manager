@@ -1,6 +1,7 @@
 """Independent universal alarm integration, using the installed Music Manager."""
 from homeassistant.components import websocket_api
 from homeassistant.exceptions import ConfigEntryNotReady
+from .family_access import register
 from .const import DOMAIN, MUSIC_DOMAIN
 
 async def async_setup(hass, config):
@@ -17,6 +18,7 @@ async def async_setup_entry(hass, entry):
     if getattr(entry, "title", None) == "Wecker Manager":
         hass.config_entries.async_update_entry(entry, title="Wecker")
     hass.data.setdefault(DOMAIN, {})[entry.entry_id] = entry
+    await register(hass,DOMAIN,('view','use_own','manage'),lambda u:{'view':True,'use_own':True,'manage':u.is_admin}, entry=entry)
     async_setup_wake_cards(hass)
     return True
 

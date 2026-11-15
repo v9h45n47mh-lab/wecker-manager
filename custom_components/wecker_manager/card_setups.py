@@ -30,7 +30,7 @@ def drafts(entry):
 
 async def prepare_setup(hass, caller, config, revision=None, confirm_disable=None):
     from . import wake_cards as wake
-    wake.require_admin(caller)
+    wake.require_admin(caller,hass)
     if not isinstance(config, dict):
         raise AccessError("invalid_config", "Bitte die Einrichtung vollständig ausfüllen.")
     entry = wake.entry_for(hass)
@@ -56,7 +56,7 @@ async def prepare_setup(hass, caller, config, revision=None, confirm_disable=Non
 
 def setup_status(hass, caller, setup_id):
     from . import wake_cards as wake
-    wake.require_admin(caller)
+    wake.require_admin(caller,hass)
     draft = drafts(wake.entry_for(hass)).get(wake.identifier(setup_id))
     if not draft:
         return {"pending": False}

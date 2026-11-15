@@ -15,6 +15,18 @@ from music_fixture import load_gateway
 
 
 class WakeCardTests(IsolatedAsyncioTestCase):
+    async def test_central_manager_and_view_only_keep_native_user_identity(self):
+        hass, entry, owner, admin, _, config, *_ = self.fixture()
+        grants={'view':True,'use_own':True,'manage':True}
+        hass.data['family_access_manager']=NS(application_protocol=1,application_permissions=lambda u,a:dict(grants))
+        await self.wake.create_card(hass,owner,config)
+        self.assertFalse(owner.is_admin)
+        grants.update(use_own=False,manage=False)
+        await self.wake.checked_record(hass,owner,config['alarm_id'],config['card_id'],permission='view')
+        with self.assertRaises(self.wake.AccessError):
+            await self.wake.checked_record(hass,owner,config['alarm_id'],config['card_id'])
+        with self.assertRaises(self.wake.AccessError):self.wake.require_admin(owner,hass)
+
     async def test_radio_wake_plays_on_all_bound_speakers_without_ma_and_retains_stop_deadline(self):
         hass, entry, owner, admin, _, config, *_ = self.fixture()
         await self.wake.create_card(hass, admin, config)
@@ -52,6 +64,7 @@ class WakeCardTests(IsolatedAsyncioTestCase):
     def setUpClass(cls):
         cls.gateway = load_gateway()
         core = types.ModuleType('homeassistant.core')
+        core.callback = lambda f:f
         core.Context = lambda **kw: NS(**kw)
         sys.modules[core.__name__] = core
         events = types.ModuleType('homeassistant.helpers.event')
