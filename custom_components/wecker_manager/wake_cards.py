@@ -20,6 +20,7 @@ from homeassistant.util import dt as dt_util
 from ..music_manager.access import AccessError, account_for, checked_account, sonos_uid, validate_uri, value
 from ..music_manager.alarms import ALARM_ID, SELECTION_KEY, alarm_owner, apple_target, selection_from
 from ..music_manager.const import CONF_ACCOUNTS, CONF_ALARMS
+from .family_access import allows
 from .const import DOMAIN, MUSIC_DOMAIN, VERSION
 from .day_types import legacy_days, day_definitions, validate_days, settings_for_days, calendar_mode
 from . import shared_days
@@ -52,9 +53,9 @@ def runtime(hass):
     return hass.data.setdefault(RUNTIME, {"lock": asyncio.Lock(), "busy": set(), "errors": {}})
 
 
-def require_admin(user):
-    if not user or not user.is_active or user.system_generated or not user.is_admin:
-        raise AccessError("unauthorized", "Neue Weckerkarten können nur Administratoren anlegen.")
+def require_admin(user,hass=None):
+    if not user or not user.is_active or user.system_generated or not allows(hass,user,DOMAIN,'manage',user.is_admin):
+        raise AccessError("unauthorized", "Die Weckerverwaltung muss für deine Rolle in Family Access freigegeben sein.")
 
 
 def identifier(raw):
@@ -174,13 +175,13 @@ def checked_light_scene(hass, owner, caller, scene_id, light_id):
     return result
 
 
-async def checked_record(hass, caller, alarm_id, card_id):
+async def checked_record(hass, caller, alarm_id, card_id, permission="use_own"):
     entry = entry_for(hass)
     record = entry.options.get(KEY, {}).get(identifier(alarm_id))
     if not record or record["binding"]["card_id"] != identifier(card_id):
         raise AccessError("card_missing", "Diese Karte wurde ersetzt. Bitte eine neue Weckerkarte anlegen.")
     binding = record["binding"]
-    owner = await alarm_owner(hass, {"ha_user_id": binding["owner_id"]}, caller)
+    owner = await alarm_owner(hass, {"ha_user_id": binding["owner_id"]}, caller, application=DOMAIN, permission=permission)
     music_entry = music_entry_for(hass)
     account = account_for(music_entry.options.get(CONF_ACCOUNTS, []), owner.id)
     if account != record["account"]:
@@ -294,7 +295,7 @@ def validate_settings(raw, days=None):
 
 
 async def catalog(hass, caller, owner_id=None, *, refresh_usage=False):
-    require_admin(caller)
+    require_admin(caller,hass)
     if refresh_usage:
         from .card_setups import synchronize_saved_setups
         await synchronize_saved_setups(hass, force=True)
@@ -383,7 +384,7 @@ async def catalog(hass, caller, owner_id=None, *, refresh_usage=False):
 
 
 async def save_day_template(hass, caller, raw, revision, apply_policies=False):
-    require_admin(caller)
+    require_admin(caller,hass)
     fields = {"id", "name", "icon", "weekdays", "calendar_entity", "calendar_mode"}
     if not isinstance(raw, dict) or not fields <= set(raw) or set(raw) - fields - {"display_name", *shared_days.POLICIES} or type(revision) is not int or revision < 0 or type(apply_policies) is not bool:
         raise AccessError("invalid_config", "Der gemeinsame Tagestyp ist unvollständig.")
@@ -434,7 +435,7 @@ async def save_day_template(hass, caller, raw, revision, apply_policies=False):
 
 
 async def delete_day_template(hass, caller, template_id, revision, remove_cards=None):
-    require_admin(caller)
+    require_admin(caller,hass)
     identifier(template_id)
     entry = entry_for(hass)
     async with runtime(hass)["lock"]:
@@ -484,7 +485,7 @@ def remove_card_records(hass, entry, templates, cards, linked, changed=()):
 
 
 async def list_cards(hass, caller):
-    require_admin(caller)
+    require_admin(caller,hass)
     from .card_setups import synchronize_saved_setups
     from .dashboard_usage import current_references
     await synchronize_saved_setups(hass, force=True)
@@ -508,7 +509,7 @@ async def list_cards(hass, caller):
 
 
 async def delete_card(hass, caller, alarm_id, card_id, revision):
-    require_admin(caller)
+    require_admin(caller,hass)
     identifier(alarm_id)
     identifier(card_id)
     from .dashboard_usage import current_references
@@ -524,7 +525,7 @@ async def delete_card(hass, caller, alarm_id, card_id, revision):
 
 
 async def create_card(hass, caller, config, *, reconfigure=False, revision=None, confirm_disable=None, validate_only=False, setup_id=None):
-    require_admin(caller)
+    require_admin(caller,hass)
     if not isinstance(config, dict) or set(config) - {"card_id", "alarm_id", "owner_id", "speakers", "covers", "lights", "calendar_entity", "sunrise_minutes", "replace_automation", "days", "name", "hue_scene"}:
         raise AccessError("invalid_config", "Die Kartenkonfiguration ist ungültig.")
     card_id, alarm_id = identifier(config.get("card_id")), identifier(config.get("alarm_id"))
@@ -544,7 +545,7 @@ async def create_card(hass, caller, config, *, reconfigure=False, revision=None,
                 raise AccessError("immutable_binding", "Geräte und Musikkonto sind festgelegt. Bitte eine neue Karte anlegen.")
             await checked_record(hass, caller, alarm_id, card_id)
             return snapshot(hass, existing)
-        owner = await alarm_owner(hass, {"ha_user_id": config.get("owner_id")}, caller)
+        owner = await alarm_owner(hass, {"ha_user_id": config.get("owner_id")}, caller, application=DOMAIN)
         music_entry = music_entry_for(hass)
         account = account_for(music_entry.options.get(CONF_ACCOUNTS, []), owner.id)
         speakers, covers, lights = config.get("speakers"), config.get("covers", []), config.get("lights", [])
@@ -693,7 +694,7 @@ def check_disable_confirmation(record, next_types, confirmed):
 
 
 async def configure_days(hass, caller, alarm_id, card_id, raw_days, revision, confirm_disable=None):
-    require_admin(caller)
+    require_admin(caller,hass)
     days = validate_days(raw_days)
     async with runtime(hass)["lock"]:
         entry, record, owner = await checked_record(hass, caller, alarm_id, card_id)
@@ -774,7 +775,7 @@ async def prepare_calendars(hass, record, owner, when, caller=None, *, force=Fal
 async def tomorrow_info(hass, caller, alarm_id, card_id, day_offset=1):
     if type(day_offset) is not int or day_offset not in (0, 1):
         raise AccessError("invalid_config", "Bitte heute oder morgen für die Kopfleiste auswählen.")
-    _, record, owner = await checked_record(hass, caller, alarm_id, card_id)
+    _, record, owner = await checked_record(hass, caller, alarm_id, card_id, permission="view")
     when = (dt_util.as_local(dt_util.utcnow()) + timedelta(days=day_offset)).replace(hour=0, minute=0, second=0, microsecond=0)
     period = "Heute" if day_offset == 0 else "Morgen"
     await prepare_calendars(hass, record, owner, when, caller, include_disabled=True)
@@ -801,7 +802,7 @@ async def tomorrow_info(hass, caller, alarm_id, card_id, day_offset=1):
 
 async def upcoming_info(hass, caller, alarm_id, card_id):
     """Actual upcoming wakes in 24 elapsed hours, using the scheduler's rules."""
-    _, record, owner = await checked_record(hass, caller, alarm_id, card_id)
+    _, record, owner = await checked_record(hass, caller, alarm_id, card_id, permission="view")
     now = dt_util.utcnow().astimezone(timezone.utc)
     until = now + timedelta(hours=24)
     local_now, local_end = dt_util.as_local(now), dt_util.as_local(until)
@@ -868,6 +869,8 @@ async def websocket_wake_card(hass, connection, msg):
     try:
         async with asyncio.timeout(45):
             action = msg["action"]
+            permission='view' if action in {'get','day_info','upcoming'} else 'use_own' if action in {'update','set_enabled','set_playback'} else 'manage'
+            if not allows(hass,connection.user,DOMAIN,permission,True if permission!='manage' else connection.user.is_admin,audit=True):raise AccessError('unauthorized','Diese Weckerfunktion ist für deine Rolle nicht freigegeben.')
             if action == "catalog":
                 result = await catalog(hass, connection.user, msg.get("owner_id"), refresh_usage=msg.get("refresh_usage", False))
             elif action == "list_cards":
@@ -910,14 +913,15 @@ async def websocket_wake_card(hass, connection, msg):
                     from .card_setups import drafts
                     pending = next((item for item in drafts(entry).values() if item["config"]["alarm_id"] == alarm_id and item["config"]["card_id"] == card_id), None)
                     if pending:
-                        await alarm_owner(hass, {"ha_user_id": pending["config"]["owner_id"]}, connection.user)
+                        await alarm_owner(hass, {"ha_user_id": pending["config"]["owner_id"]}, connection.user, application=DOMAIN)
                     else:
-                        require_admin(connection.user)
-                    result = {"exists": False, "can_create": connection.user.is_admin, "pending": bool(pending), "replaces_card": bool(record), "error": runtime(hass)["errors"].get(card_id, "")}
+                        require_admin(connection.user,hass)
+                    result = {"exists": False, "can_create": allows(hass,connection.user,DOMAIN,"manage",connection.user.is_admin), "pending": bool(pending), "replaces_card": bool(record), "error": runtime(hass)["errors"].get(card_id, "")}
                 else:
-                    if not connection.user.is_admin:
-                        _, record, _ = await checked_record(hass, connection.user, alarm_id, card_id)
+                    if not allows(hass,connection.user,DOMAIN,'manage',connection.user.is_admin):
+                        _, record, _ = await checked_record(hass, connection.user, alarm_id, card_id, permission="view")
                     result = snapshot(hass, record)
+            result["can_manage"]=allows(hass,connection.user,DOMAIN,"manage",connection.user.is_admin)
             connection.send_result(msg["id"], result)
     except AccessError as err:
         connection.send_error(msg["id"], err.code, str(err))

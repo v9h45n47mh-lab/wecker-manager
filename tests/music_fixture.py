@@ -46,6 +46,7 @@ def load_gateway():
             return fn
         return decorate
     ws.websocket_command, ws.async_response = command, lambda fn: fn
+    ws.async_register_command = lambda *args:None
     helpers = module('homeassistant.components.music_assistant.helpers')
     helpers.get_music_assistant_client = lambda hass, entry_id: hass.mass
     registry = module('homeassistant.helpers.entity_registry')

@@ -20,7 +20,7 @@ function setup({config={},catalog:override,manager=false,alarms=false,storedCard
  editor.directSave=direct;
  if(!alarms)editor.setConfig({type:'custom:wecker-manager-card',alarm_id:'new_alarm',card_id:'new_card',owner_id:'',speakers:[],covers:[],lights:[],calendar_entity:'',sunrise_minutes:0,...config});
  editor.addEventListener('config-changed',e=>events.push(clone(e.detail.config)));
- editor.hass={user:{id:'admin',is_admin:true},connection:{async subscribeEvents(){return ()=>{}}},states:{},async callWS(msg){calls.push(clone(msg));
+ editor.hass={user:{id:'admin',is_admin:true},connection:{async subscribeEvents(){return ()=>{}}},states:{},async callWS(msg){if(msg.type==='family_access/application_permissions')return {permissions:{view:true,use_own:true,manage:this.user.is_admin}};calls.push(clone(msg));
   if(msg.action==='get')return clone(created||{exists:false,can_create:true});
   if(msg.action==='list_cards'){if(fail)throw Error('Dashboard konnte nicht geladen werden');return {cards:clone(storedCards),usage_checked_at:'2026-11-13T15:00:00Z'};}
   if(msg.action==='delete_card'){if(fail)throw Error('Löschen fehlgeschlagen');const index=storedCards.findIndex(card=>card.alarm_id===msg.alarm_id&&card.card_id===msg.card_id&&card.revision===msg.revision);if(index<0||!storedCards[index].can_delete)throw Error('Wecker wird verwendet');storedCards.splice(index,1);return {deleted:true};}
@@ -190,7 +190,7 @@ test('alarm manager filters unused records, confirms deletion, retains errors an
 test('alarm manager refreshes usage and removes administrator data when the user changes',async()=>{
  const card={alarm_id:'old_alarm',card_id:'old_card',revision:1,name:'Privater Wecker',owner:'Manuel',days:[],speakers:[],dashboards:[],can_delete:true};
  const e=setup({alarms:true,storedCards:[card]});await flush();Object.assign(e.storedCards[0],{dashboards:['Familie'],can_delete:false});e.click('stored-refresh');await flush();assert.match(e.editor._body.textContent,/Keine ungenutzten Wecker/);e.click('stored-filter','[data-filter="all"]');assert(e.editor.shadowRoot.querySelector('[data-action="stored-delete"]').disabled);
- const before=e.calls.length;e.editor.hass={...e.editor._hass,user:{id:'paul',is_admin:false}};await flush();assert.match(e.editor._body.textContent,/nur Administratoren/);assert.doesNotMatch(e.editor._body.textContent,/Privater Wecker/);assert.equal(e.calls.length,before);assert.equal(e.editor.shadowRoot.querySelectorAll('button:not(dialog button)').length,0);e.editor.remove();
+ const before=e.calls.length;e.editor.hass={...e.editor._hass,user:{id:'paul',is_admin:false}};await flush();assert.match(e.editor._body.textContent,/für deine Rolle nicht freigegeben/);assert.doesNotMatch(e.editor._body.textContent,/Privater Wecker/);assert.equal(e.calls.length,before);assert.equal(e.editor.shadowRoot.querySelectorAll('button:not(dialog button)').length,0);e.editor.remove();
 });
 test('central day management saves music and confirmation defaults with explicit application scope',async()=>{
  const shared={id:'shared',name:'Schultag',display_name:'Schultag',icon:'mdi:school',weekdays:[0],calendar_entity:'',calendar_mode:'no_event',music_mode:'always',confirm_disable:true,revision:2,uses:2};
