@@ -1,4 +1,4 @@
-/* Wecker 1.13.1 | MIT | HA UI Kit 1.4.1 bundled unchanged */
+/* Wecker 1.13.2 | MIT | HA UI Kit 1.4.1 bundled unchanged */
 const WeckerManagerUI=(()=>{
 /* HA UI Kit 1.4.1 | MIT | Source priority: Shutter, Light, Essensplaner, Haushalt, Spuelmaschine, Access */
 const UI_VERSION = "1.4.1";
@@ -590,7 +590,7 @@ function releaseFamilyAccess(host){host._familyAccessUnsub?.();host._familyAcces
 
 const {UI_CSS, icon, navigation, row, section, button, iconButton, filterButton, toggle, dialog, confirmDialog, field, selectField, rangeControl, multiSelect, whiteTemperatureControl, colourPicker, weekdayPicker, notice, loadingState, versionInfo, bindUI, escapeHtml} = WeckerManagerUI;
 
-const CARD_VERSION='1.13.1';
+const CARD_VERSION='1.13.2';
 
 const executionError = (data,timeZone) => {
   if(!data?.error)return '';
