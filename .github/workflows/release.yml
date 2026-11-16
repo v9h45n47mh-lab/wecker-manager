@@ -12,6 +12,8 @@ jobs:
     env:
       CHROMIUM_PATH: /usr/bin/google-chrome
       MUSIC_MANAGER_SOURCE: ${{ github.workspace }}/.test-deps/music-manager
+      LIGHT_MANAGER_SOURCE: ${{ github.workspace }}/.test-deps/light-manager
+      SHUTTER_MANAGER_SOURCE: ${{ github.workspace }}/.test-deps/shutter-manager
     steps:
       - uses: actions/checkout@v4
       - uses: actions/checkout@v4
@@ -19,6 +21,18 @@ jobs:
           repository: v9h45n47mh-lab/music-manager
           ref: 8c9ef63deeef9472f85b4fe3fb82094a1190d345
           path: .test-deps/music-manager
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: v9h45n47mh-lab/light-manager
+          ref: 415218d092c9dea288d0ff50e449b5ce6fa5f449
+          path: .test-deps/light-manager
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: v9h45n47mh-lab/shutter-manager
+          ref: 1493afbf2aedfe94bbb621d978311036b1d1b8f4
+          path: .test-deps/shutter-manager
           persist-credentials: false
       - uses: actions/setup-node@v4
         with:

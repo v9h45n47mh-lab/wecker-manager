@@ -1,4 +1,4 @@
-# Weckerkarte 1.13.1
+# Weckerkarte 1.13.2
 
 Die Integration führt Wecker zentral in Home Assistant aus. Dashboardkarten zeigen und ändern die zentral gespeicherten Daten. Der separat installierte Music Manager liefert die persönliche Musikauswahl.
 
@@ -113,3 +113,9 @@ Bei eingeschalteter Sonnenaufgangsfunktion steht ein kleines blaues Sonnenaufgan
 Unter **Fehlerdetails** stehen bei neuen Gerätefehlern Name und Entitätskennung des Geräts, Aktion und Fehlergrund. Der Kopf nennt Tagestyp, Zeitpunkt und **Wecken** oder **Sonnenaufgang**. Dieselben Angaben erscheinen in der Statuskarte. Die Details verwenden die aktuelle Berechtigung des Weckers und bleiben nach einem Home-Assistant-Neustart sichtbar. Ein späterer erfolgreicher Durchlauf entfernt den bisherigen Gerätefehler. Eine vollständige Neukonfiguration verwirft alte Gerätedetails.
 
 Andere Geräteaktionen werden bei einem einzelnen Ausfall weiter ausgeführt. Die Fehleranzeige wiederholt keine Schaltbefehle. Alte Sammelmeldungen können nachträglich keine Gerätenamen liefern, da diese Informationen bisher nicht gespeichert wurden. Bei einem allgemeinen Integrationsfehler helfen Gerät, Aktion, Zeitpunkt und Fehlerklasse beim Abgleich mit dem Home-Assistant-Protokoll.
+
+## Weckzeit nach einer Ausführung verschieben
+
+Wird ein heutiger Wecker nach einem früheren Weckversuch auf eine andere Uhrzeit gestellt, wird dieser neue Termin berücksichtigt. Bei einer Weckzeit von 08:15 und zehn Minuten Sonnenaufgang liegen die neuen Lichtbefehle bei 08:05 und 08:15; die Rollladenfahrten liegen bei 08:15. Die 24-Stunden-Markierung sowie Light Manager und Shutter Manager verwenden dieselbe Vorschau. Wochentage, Aktivierung und Kalenderbedingungen gelten weiterhin.
+
+Beim Update bereinigt der Neustart alte Ausführungsvermerke, die einen noch bevorstehenden Termin blockieren. Es werden keine vergangenen Weckzeiten nachgeholt. Ein unveränderter Termin bleibt auch nach Neustart oder Zeitumstellung vor doppelter Ausführung geschützt. Änderungen an Lautstärke, Musik oder Schnellzeiten sowie Aus-/Einschalten planen einen erledigten Termin nicht nochmals ein.

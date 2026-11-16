@@ -1,3 +1,12 @@
+# Wecker 1.13.2
+
+- **Verschobene Wecker am selben Tag werden neu eingeplant.** Ein früherer Weckversuch blockiert eine anschließend geänderte Weckzeit nicht mehr. Die blaue 24-Stunden-Markierung und die Weckereinträge in den Zeitprogrammen von Light Manager und Shutter Manager verwenden wieder den neuen Termin.
+- Beim Neustart werden alte Ausführungsvermerke für noch bevorstehende Termine korrigiert. Damit werden auch bereits vor dem Update auf eine spätere Uhrzeit verschobene Wecker wieder berücksichtigt. Bereits vergangene Termine werden nicht nachgeholt; doppelte Ausführung bei der Zeitumstellung bleibt verhindert.
+- Neue Ausführungsvermerke speichern die zugehörige Weckzeit und Sonnenaufgangsdauer. Lautstärke, Musik, Schnellzeiten und einfaches Aus-/Einschalten geben einen erledigten Termin nicht erneut frei. Eine Änderung nur der Sonnenaufgangsdauer betrifft nur die Licht-Vorphase.
+- Geprüft mit einem Wecker von 06:30 auf 08:15, zehn Minuten Sonnenaufgang und den tatsächlichen Vorschau-Modulen beider Manager. Die Manager müssen hierfür nicht aktualisiert werden. Der Hue-Fix und die Fehlerdetails aus 1.13.1 bleiben enthalten.
+
+**Update:** Wecker in HACS aktualisieren, Home Assistant neu starten und Browser/App vollständig neu laden.
+
 # Wecker 1.13.1
 
 - **Hue-Lichtausfall behoben:** Einzelne Hue-Szenen werden mit der korrekten Home-Assistant-Aufrufsignatur angewendet. Der bisherige Aufruf scheiterte sowohl beim Sonnenaufgang als auch beim Wecken. Die Korrektur ist mit zwei Lampen, individuellen Szenen und zehn Minuten Sonnenaufgang geprüft.
