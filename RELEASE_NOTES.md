@@ -1,3 +1,12 @@
+# Wecker 1.14.0
+
+- **Gespeicherte Fehlermeldungen sind ausschließlich für Home-Assistant-Administratoren sichtbar.** Das gilt für die Weckerkarte, die Statuskarte und die Backend-Schnittstelle. Delegierte Wecker-Verwaltungsrechte geben keinen Zugriff auf Diagnosen.
+- **Meldung quittieren** entfernt die gespeicherte Meldung dauerhaft und aktualisiert andere geöffnete Karten. Der Button steht als Admin direkt unter den Fehlerdetails. Ein inzwischen neu eingegangener Fehler wird zunächst geladen und bleibt erhalten.
+- Das Quittieren verändert weder Weckzeiten noch Aktivierung, Musik, Gerätebindungen oder laufende Stopptimer. Geräte werden nicht erneut geschaltet, erledigte Termine nicht nochmals freigegeben.
+- Admin-Entzug, fehlgeschlagenes Speichern, veraltete Meldungen, Neustart und beide Kartentypen sind geprüft. Eingabe- und Berechtigungshinweise bei der normalen Bedienung bleiben sichtbar.
+
+**Update:** Wecker in HACS aktualisieren, Home Assistant neu starten und Browser/App vollständig neu laden. Anschließend als Admin unter der Meldung **Meldung quittieren** wählen.
+
 # Wecker 1.13.2
 
 - **Verschobene Wecker am selben Tag werden neu eingeplant.** Ein früherer Weckversuch blockiert eine anschließend geänderte Weckzeit nicht mehr. Die blaue 24-Stunden-Markierung und die Weckereinträge in den Zeitprogrammen von Light Manager und Shutter Manager verwenden wieder den neuen Termin.

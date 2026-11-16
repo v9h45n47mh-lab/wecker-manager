@@ -1,4 +1,4 @@
-# Weckerkarte 1.13.2
+# Weckerkarte 1.14.0
 
 Die Integration führt Wecker zentral in Home Assistant aus. Dashboardkarten zeigen und ändern die zentral gespeicherten Daten. Der separat installierte Music Manager liefert die persönliche Musikauswahl.
 
@@ -110,7 +110,11 @@ Bei eingeschalteter Sonnenaufgangsfunktion steht ein kleines blaues Sonnenaufgan
 
 ## Fehlgeschlagene Weckaktionen
 
-Unter **Fehlerdetails** stehen bei neuen Gerätefehlern Name und Entitätskennung des Geräts, Aktion und Fehlergrund. Der Kopf nennt Tagestyp, Zeitpunkt und **Wecken** oder **Sonnenaufgang**. Dieselben Angaben erscheinen in der Statuskarte. Die Details verwenden die aktuelle Berechtigung des Weckers und bleiben nach einem Home-Assistant-Neustart sichtbar. Ein späterer erfolgreicher Durchlauf entfernt den bisherigen Gerätefehler. Eine vollständige Neukonfiguration verwirft alte Gerätedetails.
+Unter **Fehlerdetails** stehen bei neuen Gerätefehlern Name und Entitätskennung des Geräts, Aktion und Fehlergrund. Der Kopf nennt Tagestyp, Zeitpunkt und **Wecken** oder **Sonnenaufgang**. Meldungen und Details sind ausschließlich für Home-Assistant-Administratoren sichtbar, auch in der Statuskarte. Das gilt unabhängig von delegierten Wecker-Verwaltungsrechten; Nicht-Admins erhalten die Diagnoseinformationen auch nicht über die WebSocket-Schnittstelle.
+
+Unter der Meldung steht für Admins **Meldung quittieren**. Der Button entfernt den gespeicherten Fehler dauerhaft, auch nach einem Neustart und auf anderen geöffneten Karten. Weckzeiten, Aktivierung, Musik und laufende Stopptimer bleiben erhalten. Geräte werden dabei nicht geschaltet, und bereits erledigte Termine werden nicht erneut ausgeführt. Ist inzwischen ein neuer Fehler eingegangen, wird dieser zunächst geladen und kann anschließend gesondert quittiert werden.
+
+Ohne Quittierung bleibt ein Gerätefehler über einen Home-Assistant-Neustart hinweg erhalten. Ein späterer erfolgreicher Durchlauf entfernt den bisherigen Gerätefehler. Eine vollständige Neukonfiguration verwirft alte Gerätedetails. Eingabe- und Berechtigungshinweise bei der normalen Bedienung bleiben für den jeweiligen Benutzer sichtbar.
 
 Andere Geräteaktionen werden bei einem einzelnen Ausfall weiter ausgeführt. Die Fehleranzeige wiederholt keine Schaltbefehle. Alte Sammelmeldungen können nachträglich keine Gerätenamen liefern, da diese Informationen bisher nicht gespeichert wurden. Bei einem allgemeinen Integrationsfehler helfen Gerät, Aktion, Zeitpunkt und Fehlerklasse beim Abgleich mit dem Home-Assistant-Protokoll.
 

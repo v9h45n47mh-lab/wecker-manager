@@ -30,6 +30,7 @@ function fixture({days,settings:override,header,status=false,admin=false,upcomin
   if(msg.action==='get')return clone(record);
   if(msg.action==='catalog')return {shared_days:[],calendars:[]};
   if(msg.action==='list_cards')return {cards:[],usage_checked_at:'2026-11-13T16:00:00Z'};
+  if(msg.action==='acknowledge_error'){if(!this.user.is_admin)throw {code:'unauthorized',message:'Nur Administratoren'};if(fail)throw {code:'save_failed',message:'Speichern fehlgeschlagen'};if(record.error&&record.error_token!==msg.error_token)throw {code:'conflict',message:'Die Meldung wurde inzwischen aktualisiert.'};record.error='';record.execution_error=null;record.error_token=null;for(const callback of listeners)callback({data:{alarm_id:'school'}});return clone(record);}
   if(msg.action==='update'){if(fail)throw {code:'save_failed',message:'Speichern fehlgeschlagen'};if(msg.revision!==record.revision)throw {code:'conflict',message:'Auf einem anderen Gerät geändert'};record.settings=clone(msg.settings);if(msg.playback)record.playback=clone(msg.playback);record.revision++;for(const callback of listeners)callback({data:{alarm_id:'school'}});return clone(record);}
   if(msg.action==='set_playback'){if(fail)throw {code:'save_failed',message:'Speichern fehlgeschlagen'};record.playback=clone(msg.playback);record.revision++;for(const callback of listeners)callback({data:{alarm_id:'school'}});return clone(record);}
   if(msg.action==='set_enabled'){if(fail)throw {code:'save_failed',message:'Speichern fehlgeschlagen'};record.settings.types[msg.kind].enabled=msg.enabled;record.revision++;for(const callback of listeners)callback({data:{alarm_id:'school'}});return clone(record);}
@@ -48,19 +49,55 @@ test('wake wheel initializes at the saved time and cancel never persists',async(
 
 test('execution details appear on alarm and status cards, escape text and respect revocation',async()=>{
  for(const status of [false,true]){
-  const e=fixture({status});await flush();const report=executionFailure();report.failures[0].name='<img src=x onerror=bad()> Ankleide';
-  e.remoteChange(record=>{record.error=report.summary;record.execution_error=report;});await flush();
+  const e=fixture({status,admin:true});await flush();const report=executionFailure();report.failures[0].name='<img src=x onerror=bad()> Ankleide';
+  e.remoteChange(record=>{record.error=report.summary;record.execution_error=report;record.error_token='a'.repeat(64);});await flush();
   const host=e.card.shadowRoot.querySelector(status?'#status-error':'#wake-status');
   assert.match(host.textContent,/2 Weckaktionen/);assert.match(host.textContent,/Wochentag · Sonnenaufgang/);assert.match(host.textContent,/light.one/);assert.match(host.textContent,/light.two/);assert.match(host.textContent,/Timeout|rechtzeitig/);assert.equal(host.querySelectorAll('.setting-row').length,2);assert.equal(host.querySelector('img'),null);assert.match(host.textContent,/<img src=x onerror=bad\(\)> Ankleide/);
   assert.equal(host.querySelector('[data-ui="collapse"]').getAttribute('aria-expanded'),'true');host.querySelector('[data-ui="collapse"]').click();assert.equal(host.querySelector('[data-ui="collapse"]').getAttribute('aria-expanded'),'false');
-  e.card._familyAccess={use_own:false,manage:false};e.card._render();assert(!host.textContent.includes('Ankleide'));e.card.remove();
+  e.card._hass.user.is_admin=false;e.card.hass=e.card._hass;await flush();assert(!host.textContent.includes('Ankleide'));assert.equal(host.querySelector('[data-action="ack-error"]'),null);e.card.remove();
  }
 });
 
 test('generic and cleared execution errors do not retain stale device details',async()=>{
- const e=fixture();await flush();const report=executionFailure();e.remoteChange(record=>{record.error=report.summary;record.execution_error=report;});await flush();assert.equal(e.card.shadowRoot.querySelectorAll('#wake-status .setting-row').length,2);
+ const e=fixture({admin:true});await flush();const report=executionFailure();e.remoteChange(record=>{record.error=report.summary;record.execution_error=report;record.error_token='a'.repeat(64);});await flush();assert.equal(e.card.shadowRoot.querySelectorAll('#wake-status .setting-row').length,2);
  e.remoteChange(record=>{record.error='Kalender nicht erreichbar';});await flush();assert.match(e.card.shadowRoot.querySelector('#wake-status').textContent,/Kalender/);assert.equal(e.card.shadowRoot.querySelector('#wake-error-details-content'),null);
  e.remoteChange(record=>{record.error='';record.execution_error=null;});await flush();assert.equal(e.card.shadowRoot.querySelector('#wake-status').textContent,'');e.card.remove();
+});
+
+test('admins acknowledge saved failures on both card types without changing alarm settings',async()=>{
+ for(const status of [false,true]){
+  const e=fixture({status,admin:true});await flush();const report=executionFailure();
+  e.remoteChange(record=>{record.error=report.summary;record.execution_error=report;record.error_token='a'.repeat(64);record.runs={'2026-11-16/schultag/wake':true};record.stops=[{at:'2026-11-16T06:40:00Z'}];});await flush();
+  const before=clone(e.record);e.click('ack-error');await flush();
+  const requests=e.calls.filter(c=>c.action==='acknowledge_error');assert.equal(requests.length,1);assert.equal(requests[0].error_token,'a'.repeat(64));
+  assert.equal(e.record.error,'');assert.equal(e.card.shadowRoot.querySelector('[data-action="ack-error"]'),null);assert(!e.card.shadowRoot.querySelector('#wake-status,#status-error').textContent.includes('Fehlerdetails'));
+  for(const key of ['settings','binding','revision','runs','stops'])assert.deepEqual(e.record[key],before[key]);
+  assert(!e.calls.some(c=>['update','set_enabled','set_playback'].includes(c.action)));e.card.remove();
+ }
+});
+
+test('nonadmin managers cannot see or acknowledge diagnostics even with an old unredacted response',async()=>{
+ for(const status of [false,true]){
+  const e=fixture({status});await flush();const report=executionFailure();e.card._familyAccess={view:true,use_own:true,manage:true};
+  e.remoteChange(record=>{record.error=report.summary;record.execution_error=report;record.error_token='a'.repeat(64);});await flush();
+  assert(!e.card.shadowRoot.querySelector('#wake-status,#status-error').textContent.includes('Fehlerdetails'));assert(!e.card.shadowRoot.querySelector('#wake-status,#status-error').textContent.includes(report.summary));assert.equal(e.card.shadowRoot.querySelector('[data-action="ack-error"]'),null);
+  await e.card._action({action:'ack-error',data:{}});assert(!e.calls.some(c=>c.action==='acknowledge_error'));assert.equal(e.record.error,report.summary);e.card.remove();
+ }
+});
+
+test('failed acknowledgment keeps details visible and a retry clears the message',async()=>{
+ for(const status of [false,true]){
+ const e=fixture({admin:true,status});await flush();const report=executionFailure();e.remoteChange(record=>{record.error=report.summary;record.execution_error=report;record.error_token='a'.repeat(64);});await flush();
+ e.fail=true;e.click('ack-error');await flush();assert.equal(e.record.error,report.summary);assert.match(e.card.shadowRoot.querySelector('#wake-status,#status-error').textContent,/Speichern fehlgeschlagen/);assert.match(e.card.shadowRoot.querySelector('#wake-status,#status-error').textContent,/Ankleide/);
+ assert.equal(e.card.shadowRoot.querySelector('[data-action="ack-error"]').disabled,false);e.fail=false;e.click('ack-error');await flush();assert.equal(e.record.error,'');assert(!e.card.shadowRoot.querySelector('#wake-status,#status-error').textContent.includes('Fehlerdetails'));e.card.remove();
+ }
+});
+
+test('a stale acknowledgment reloads the newer report without clearing it',async()=>{
+ const e=fixture({admin:true});await flush();const report=executionFailure();e.remoteChange(record=>{record.error=report.summary;record.execution_error=report;record.error_token='a'.repeat(64);});await flush();
+ e.record.error_token='b'.repeat(64);e.record.execution_error.failures[0].name='Neuer Gerätefehler';e.click('ack-error');await flush();
+ assert.equal(e.record.error,report.summary);assert.match(e.card.shadowRoot.querySelector('#wake-status,#status-error').textContent,/Neuer Gerätefehler/);assert.equal(e.card._data.error_token,'b'.repeat(64));
+ e.click('ack-error');await flush();assert.equal(e.record.error,'');e.card.remove();
 });
 test('wake wheel commit, presets and music switches save shared settings',async()=>{
  const e=fixture();await flush();e.click('time','[data-kind="schultag"]');const wheel=e.card.shadowRoot.querySelector('wecker-manager-time-wheel');wheel.shadowRoot.querySelector('[data-wheel="0"]').scrollTop=7*40;wheel.shadowRoot.querySelector('[data-wheel="1"]').scrollTop=23*40;e.click('save-time');await flush();
