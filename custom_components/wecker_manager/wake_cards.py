@@ -3,6 +3,8 @@
 import asyncio
 from copy import deepcopy
 from datetime import date, datetime, timedelta, timezone
+import hashlib
+import json
 import logging
 import re
 import uuid
@@ -88,7 +90,7 @@ async def set_playback(hass, caller, alarm_id, card_id, raw):
         await check_playback_selection(hass, owner, alarm_id, policy)
         updated = {**record, "playback": policy, "revision": record["revision"] + 1}
         save_record(hass, entry, alarm_id, updated)
-        return snapshot(hass, updated)
+        return snapshot(hass, updated, caller)
 
 
 async def check_playback_selection(hass, owner, alarm_id, policy):
@@ -195,19 +197,63 @@ async def checked_record(hass, caller, alarm_id, card_id, permission="use_own"):
     return entry, record, owner
 
 
-def snapshot(hass, record):
+def diagnostics_admin(user):
+    """Stored diagnostics are restricted to HA admins, independently of app roles."""
+    return bool(user and user.is_active and not user.system_generated
+                and (user.is_admin or getattr(user, "is_owner", False)))
+
+
+def diagnostic_result(result, caller):
+    """Also redact snapshots retained inside an older prepared setup."""
+    if diagnostics_admin(caller):
+        return result
+    result = deepcopy(result)
+    if "exists" in result:
+        result.update(error="", execution_error=None, error_token=None)
+    if isinstance(result.get("preview"), dict):
+        result["preview"] = diagnostic_result(result["preview"], caller)
+    return result
+
+
+def snapshot(hass, record, caller=None):
     settings = settings_for_days(record)
     settings["sunrise_minutes"] = sunrise_minutes(record)
     for kind, item in settings["types"].items():
         item["sunrise_minutes"] = sunrise_minutes(record, kind)
     report = record.get("execution_error")
     error = runtime(hass)["errors"].get(record["binding"]["card_id"], report["summary"] if report else "")
+    report = report if report and report["summary"] == error else None
+    token = hashlib.sha256(json.dumps({"alarm_id": record["binding"]["alarm_id"], "card_id": record["binding"]["card_id"], "error": error, "report": report}, sort_keys=True, ensure_ascii=False).encode()).hexdigest() if error else None
+    admin = diagnostics_admin(caller)
     return {"exists": True, "binding": deepcopy(record["binding"]),
             "playback": playback_policy(record),
             "settings": settings, "days": day_definitions(record), "revision": record["revision"],
             "name": record.get("name", "Wecker"), "version": VERSION,
             "sunrise_available": has_dimmable_light(hass, record["binding"]),
-            "error": error, "execution_error": deepcopy(report) if report and report["summary"] == error else None}
+            "error": error if admin else "", "execution_error": deepcopy(report) if admin else None,
+            "error_token": token if admin else None}
+
+
+async def acknowledge_error(hass, caller, alarm_id, card_id, token):
+    if not diagnostics_admin(caller):
+        raise AccessError("unauthorized", "Nur Administratoren dürfen Fehlermeldungen quittieren.")
+    if not isinstance(token, str) or not re.fullmatch(r"[a-f0-9]{64}", token):
+        raise AccessError("invalid_config", "Bitte die aktuelle Fehlermeldung erneut laden.")
+    async with runtime(hass)["lock"]:
+        entry, record, _ = await checked_record(hass, caller, alarm_id, card_id)
+        if not diagnostics_admin(caller):
+            raise AccessError("unauthorized", "Nur Administratoren dürfen Fehlermeldungen quittieren.")
+        current = snapshot(hass, record, caller)
+        if not current["error"]:
+            return current
+        if current["error_token"] != token:
+            raise AccessError("conflict", "Die Meldung wurde inzwischen aktualisiert. Bitte erneut prüfen.")
+        if record.get("execution_error"):
+            record = {key: value for key, value in record.items() if key != "execution_error"}
+            save_record(hass, entry, alarm_id, record, notify=False)
+        runtime(hass)["errors"].pop(card_id, None)
+        hass.bus.async_fire(EVENT, {"alarm_id": alarm_id})
+        return snapshot(hass, record, caller)
 
 
 def sunrise_minutes(record, kind="schultag"):
@@ -607,7 +653,7 @@ async def create_card(hass, caller, config, *, reconfigure=False, revision=None,
             if binding_signature(config) != binding_signature(existing["binding"]):
                 raise AccessError("immutable_binding", "Geräte und Musikkonto sind festgelegt. Bitte eine neue Karte anlegen.")
             await checked_record(hass, caller, alarm_id, card_id)
-            return snapshot(hass, existing)
+            return snapshot(hass, existing, caller)
         owner = await alarm_owner(hass, {"ha_user_id": config.get("owner_id")}, caller, application=DOMAIN)
         music_entry = music_entry_for(hass)
         account = account_for(music_entry.options.get(CONF_ACCOUNTS, []), owner.id)
@@ -693,12 +739,12 @@ async def create_card(hass, caller, config, *, reconfigure=False, revision=None,
         alarms.append({"alarm_id": alarm_id, "ha_user_id": owner.id, "source_entity": speakers[0]})
         templates, cards, changed = await stage_shared(hass, caller, entry, alarm_id, record, days)
         if validate_only:
-            return snapshot(hass, cards[alarm_id])
+            return snapshot(hass, cards[alarm_id], caller)
         if setup_id:
             cards[alarm_id]["setup_id"] = setup_id
         hass.config_entries.async_update_entry(music_entry, options={**music_entry.options, CONF_ALARMS: alarms})
         commit_shared(hass, entry, templates, cards, changed)
-        return snapshot(hass, cards[alarm_id])
+        return snapshot(hass, cards[alarm_id], caller)
 
 
 async def update_card(hass, caller, alarm_id, card_id, settings, revision, confirm_disable=None, playback=None):
@@ -727,7 +773,7 @@ async def update_card(hass, caller, alarm_id, card_id, settings, revision, confi
         if playback is not None:
             updated["playback"] = playback
         save_record(hass, entry, alarm_id, updated)
-        return snapshot(hass, updated)
+        return snapshot(hass, updated, caller)
 
 
 async def set_enabled(hass, caller, alarm_id, card_id, kind, enabled, confirm_disable=None):
@@ -743,7 +789,7 @@ async def set_enabled(hass, caller, alarm_id, card_id, kind, enabled, confirm_di
         check_disable_confirmation(record, settings["types"], confirm_disable)
         updated = {**record, "settings": settings, "revision": record["revision"] + 1}
         save_record(hass, entry, alarm_id, updated)
-        return snapshot(hass, updated)
+        return snapshot(hass, updated, caller)
 
 
 def check_disable_confirmation(record, next_types, confirmed):
@@ -775,7 +821,7 @@ async def configure_days(hass, caller, alarm_id, card_id, raw_days, revision, co
         updated = {**record, "days": days, "settings": settings, "revision": record["revision"] + 1}
         templates, cards, changed = await stage_shared(hass, caller, entry, alarm_id, updated, days)
         commit_shared(hass, entry, templates, cards, changed)
-        return snapshot(hass, cards[alarm_id])
+        return snapshot(hass, cards[alarm_id], caller)
 
 
 def calendar_key(owner_id, entity_id, when):
@@ -907,7 +953,7 @@ async def upcoming_info(hass, caller, alarm_id, card_id):
 
 @websocket_api.websocket_command({
     vol.Required("type"): "wecker_manager/card",
-    vol.Required("action"): vol.In(["catalog", "list_cards", "delete_card", "get", "prepare_setup", "setup_status", "create", "configure", "update", "set_enabled", "set_playback", "day_info", "upcoming", "configure_days", "save_day_template", "delete_day_template"]),
+    vol.Required("action"): vol.In(["catalog", "list_cards", "delete_card", "get", "prepare_setup", "setup_status", "create", "configure", "update", "set_enabled", "set_playback", "acknowledge_error", "day_info", "upcoming", "configure_days", "save_day_template", "delete_day_template"]),
     vol.Optional("alarm_id"): str,
     vol.Optional("card_id"): str,
     vol.Optional("owner_id"): str,
@@ -922,6 +968,7 @@ async def upcoming_info(hass, caller, alarm_id, card_id):
     vol.Optional("day_template"): dict,
     vol.Optional("template_id"): str,
     vol.Optional("playback"): dict,
+    vol.Optional("error_token"): str,
     vol.Optional("refresh_usage"): bool,
     vol.Optional("setup_id"): str,
     vol.Optional("remove_cards"): list,
@@ -946,6 +993,8 @@ async def websocket_wake_card(hass, connection, msg):
             elif action == "setup_status":
                 from .card_setups import setup_status
                 result = setup_status(hass, connection.user, msg.get("setup_id"))
+            elif action == "acknowledge_error":
+                result = await acknowledge_error(hass, connection.user, msg.get("alarm_id"), msg.get("card_id"), msg.get("error_token"))
             elif action == "set_playback":
                 result = await set_playback(hass, connection.user, msg.get("alarm_id"), msg.get("card_id"), msg.get("playback"))
             elif action == "save_day_template":
@@ -983,9 +1032,9 @@ async def websocket_wake_card(hass, connection, msg):
                 else:
                     if not allows(hass,connection.user,DOMAIN,'manage',connection.user.is_admin):
                         _, record, _ = await checked_record(hass, connection.user, alarm_id, card_id, permission="use_own")
-                    result = snapshot(hass, record)
+                    result = snapshot(hass, record, connection.user)
             result["can_manage"]=allows(hass,connection.user,DOMAIN,"manage",connection.user.is_admin)
-            connection.send_result(msg["id"], result)
+            connection.send_result(msg["id"], diagnostic_result(result, connection.user))
     except AccessError as err:
         connection.send_error(msg["id"], err.code, str(err))
     except Exception:

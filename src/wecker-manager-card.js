@@ -14,14 +14,16 @@ function releaseFamilyAccess(host){host._familyAccessUnsub?.();host._familyAcces
 import {UI_CSS, icon, navigation, row, section, button, iconButton, filterButton, toggle, dialog, confirmDialog, field, selectField, rangeControl, multiSelect, whiteTemperatureControl, colourPicker, weekdayPicker, notice, loadingState, versionInfo, bindUI, escapeHtml} from './family-ui/1.4.1/family-ui.js';
 
 const CARD_VERSION='__WECKER_VERSION__';
+const diagnosticsAdmin = user => Boolean(user&&(user.is_admin||user.is_owner));
 
-const executionError = (data,timeZone) => {
-  if(!data?.error)return '';
+const executionError = (data,timeZone,admin=false,busy=false) => {
+  if(!admin||!data?.error)return '';
+  const acknowledge=button({label:'Meldung quittieren',icon:'success',action:'ack-error',disabled:busy||!data.error_token});
   const report=data.execution_error;
-  if(!report||report.summary!==data.error||!Array.isArray(report.failures))return notice(data.error,{error:true});
+  if(!report||report.summary!==data.error||!Array.isArray(report.failures))return notice(data.error,{error:true})+acknowledge;
   const when=new Date(report.at);
   const context=[report.day_name,report.phase==='sunrise'?'Sonnenaufgang':'Wecken',Number.isFinite(when.getTime())?when.toLocaleString('de-DE',{dateStyle:'short',timeStyle:'short',...(timeZone?{timeZone}:{})}):''].filter(Boolean).join(' · ');
-  return notice(data.error,{error:true})+section({id:'wake-error-details',title:'Fehlerdetails',expanded:true,content:notice(context)+report.failures.map(item=>row({title:item.name||item.entity_id,description:[item.action,item.message,item.code==='device_error'?item.error_type:'',item.entity_id].filter(Boolean).join(' · ')})).join('')});
+  return notice(data.error,{error:true})+section({id:'wake-error-details',title:'Fehlerdetails',expanded:true,content:notice(context)+report.failures.map(item=>row({title:item.name||item.entity_id,description:[item.action,item.message,item.code==='device_error'?item.error_type:'',item.entity_id].filter(Boolean).join(' · ')})).join('')})+acknowledge;
 };
 
 const defaultDays = (calendar='') => [
@@ -105,7 +107,8 @@ class MusicManagerAlarmCard extends HTMLElement {
     this._config={...config,...fixed(config)};this._reset();this._ensure();this._load();
   }
   set hass(hass){
-    const changed=this._hass?.user?.id!==hass?.user?.id||this._hass?.connection!==hass?.connection;
+    const admin=diagnosticsAdmin(hass?.user),changed=this._hass?.user?.id!==hass?.user?.id||this._hass?.connection!==hass?.connection||this._diagnosticsAdmin!==admin;
+    this._diagnosticsAdmin=admin;
     this._hass=hass;observeFamilyAccess(this,'wecker_manager',()=>{this._render?.();this._load?.(true);});if(changed){this._reset();this._ensure();this._load();}
     if(this._music)this._music.hass=hass;if(this._editor)this._editor.hass=hass;if(this._typeManager)this._typeManager.hass=hass;if(this._alarmManager)this._alarmManager.hass=hass;
     if(this._data?.exists)this._loadDay();
@@ -188,7 +191,7 @@ class MusicManagerAlarmCard extends HTMLElement {
     const busy=this._busy||this._loading||Boolean(this._familyAccess&&!this._familyAccess.use_own&&!this._hass?.user?.is_admin),ready=this._data?.exists;
     const settingsButton=iconButton({icon:'settings',label:'Wecker-Einstellungen',action:'settings',disabled:busy||!ready});
     this.shadowRoot.getElementById('wake-header').innerHTML=settingsButton;
-    this.shadowRoot.getElementById('wake-status').innerHTML=(this._error?notice(this._error,{error:true})+button({label:'Erneut laden',action:'reload',disabled:busy}):'')+executionError(this._data,this._hass?.config?.time_zone)+(this._loading&&!ready?loadingState('Wecker wird geladen …'):'')+(!ready&&this._data?.pending?notice('Einrichtung geprüft. Der Wecker wird nach dem Speichern der Dashboardkarte übernommen.'):!ready&&this._data?.can_create?notice('Öffne den Karteneditor und folge den Einrichtungsschritten.'): '')+(!ready&&this._data?.can_create&&(this._hass?.user?.is_admin||this._familyAccess?.manage)?button({label:'Wecker verwalten',action:'manage-alarms'}):'');
+    this.shadowRoot.getElementById('wake-status').innerHTML=(this._error?notice(this._error,{error:true})+button({label:'Erneut laden',action:'reload',disabled:busy}):'')+executionError(this._data,this._hass?.config?.time_zone,diagnosticsAdmin(this._hass?.user),this._busy||this._loading)+(this._loading&&!ready?loadingState('Wecker wird geladen …'):'')+(!ready&&this._data?.pending?notice('Einrichtung geprüft. Der Wecker wird nach dem Speichern der Dashboardkarte übernommen.'):!ready&&this._data?.can_create?notice('Öffne den Karteneditor und folge den Einrichtungsschritten.'): '')+(!ready&&this._data?.can_create&&(this._hass?.user?.is_admin||this._familyAccess?.manage)?button({label:'Wecker verwalten',action:'manage-alarms'}):'');
     this._body.innerHTML=ready?this._days().map(day=>{const kind=day.id,title=dayTitle(day);
       const settings=this._data.settings.types[kind];
       return `<section class="wake-type" aria-label="${escapeHtml(title)}">${wakeRow(day.icon,{title:`${title} · ${settings.enabled?'An':'Aus'}`,description:weekdayText(day.weekdays),trailing:button({label:settings.enabled?'Ausschalten':'Einschalten',action:'enabled',data:{kind},disabled:busy})},kind,sunriseMinutes(this._data.settings,kind,this._config))}${wakeRow('mdi:clock-outline',{title:'Uhrzeit',trailing:button({label:displayTime(settings.time),action:'time',data:{kind},disabled:busy})})}<div class="wake-presets" role="group" aria-label="${escapeHtml(title+' · Schnellzeiten')}">${settings.presets.map(time=>filterButton({label:time,action:'preset',selected:time===settings.time,data:{kind,time}}).replace('<button ',`<button${busy?' disabled':''} `)).join('')}</div>${day.music_mode==='switchable'?wakeRow('mdi:music-note',{title:'Mit Musik wecken',trailing:toggle({label:`Musik ${title}`,action:'music',checked:settings.music,iconOnly:true,disabled:busy,data:{kind}})}):''}</section>`;
@@ -228,10 +231,19 @@ class MusicManagerAlarmCard extends HTMLElement {
     catch(error){if(epoch===this._epoch){this._error=message(error);const id=this._timeDialog.open?'wake-time-status':this._settingsDialog.open?'wake-settings-status':this._confirmDialog.open?'wake-confirm-status':'wake-status';this.shadowRoot.getElementById(id).innerHTML=notice(this._error,{error:true})+(error?.code==='conflict'?button({label:'Neu laden und Änderungen verwerfen',action:'discard-reload'}):'');}return false;}
     finally{if(epoch===this._epoch){this._busy=false;this._render();}}
   }
+  async _acknowledgeError(){
+    if(this._busy||this._loading||!diagnosticsAdmin(this._hass?.user)||!this._data?.error_token)return;
+    const epoch=this._epoch,token=this._data.error_token;let reload=false;
+    this._busy=true;this._error='';this._render();
+    try{const result=await this._request('acknowledge_error',{error_token:token});if(epoch===this._epoch)this._accept(result);}
+    catch(error){if(epoch===this._epoch){this._error=message(error);reload=error?.code==='conflict';}}
+    finally{if(epoch===this._epoch){this._busy=false;this._render();if(reload||this._remoteDirty){this._remoteDirty=false;await this._load(true);}}}
+  }
   async _action({action,data,value,phase}){
     if(action==='volume'){if(this._draft)this._draft.volume=value;return;}
     if(this._busy||this._loading)return;
     if(action==='reload'){await this._load(true);return;}
+    if(action==='ack-error'){await this._acknowledgeError();return;}
     if(action==='discard-reload'){for(const modal of [this._timeDialog,this._settingsDialog,this._confirmDialog])if(modal.open)modal.close();await this._load(true);return;}
     if(action==='manage-alarms'&&(this._hass?.user?.is_admin||this._familyAccess?.manage)){if(this._settingsDialog.open)this._settingsDialog.close();this._alarmManager=document.createElement('wecker-manager-alarm-manager');this._alarmManager.hass=this._hass;this.shadowRoot.getElementById('wake-alarms-body').replaceChildren(this._alarmManager);this._alarmsDialog.showModal();return;}
     if(!this._data?.exists)return;
@@ -726,10 +738,10 @@ class WeckerManagerStatusCard extends MusicManagerAlarmCard {
   _render(){
     if(!this._body)return;this.shadowRoot.getElementById('status-title').textContent=this._config.name||this._data?.name||'Wecker';
     if(this._familyAccess&&!this._familyAccess.use_own&&!this._hass?.user?.is_admin&&!this._hass?.user?.is_owner){this._body.replaceChildren();this.shadowRoot.getElementById('status-error').innerHTML=notice('Eigenen Wecker verwalten ist für deine Rolle nicht freigegeben.');return;}
-    this.shadowRoot.getElementById('status-error').innerHTML=this._error?notice(this._error,{error:true})+button({label:'Erneut laden',action:'reload'}):this._loading&&!this._data?.exists?loadingState('Wird geladen …'):!this._data?.exists&&this._data?notice('Die zugehörige Weckerkarte wurde nicht gefunden. Bitte Alarm-ID und Karten-ID prüfen.'):executionError(this._data,this._hass?.config?.time_zone);
+    this.shadowRoot.getElementById('status-error').innerHTML=(this._error?notice(this._error,{error:true})+button({label:'Erneut laden',action:'reload',disabled:this._busy||this._loading}):'')+(this._loading&&!this._data?.exists?loadingState('Wird geladen …'):!this._data?.exists&&this._data?notice('Die zugehörige Weckerkarte wurde nicht gefunden. Bitte Alarm-ID und Karten-ID prüfen.'):executionError(this._data,this._hass?.config?.time_zone,diagnosticsAdmin(this._hass?.user),this._busy||this._loading));
     this._body.innerHTML=this._data?.exists?this._days().map(day=>{const item=this._data.settings.types[day.id],on=item?.enabled,time=item?.time;return `<div class="status-line" data-status-kind="${escapeHtml(day.id)}" aria-label="${escapeHtml(dayTitle(day)+' · '+(on?'An':'Aus')+(time?' · '+time+' Uhr':''))}"><span class="wake-symbol" data-wake-kind="${escapeHtml(day.id)}" role="img"><ha-icon icon="${escapeHtml(day.icon)}"></ha-icon></span><span class="status-dot${on?' on':''}" aria-hidden="true"></span><span>${on?'An':'Aus'}</span><time class="status-time"${time?` datetime="${escapeHtml(time)}"`:''}>${escapeHtml(time||'–')}</time></div>`;}).join(''):'';this._renderDay();
   }
-  _action({action}){if(action==='reload')this._load(true);}
+  _action({action}){if(action==='reload')this._load(true);if(action==='ack-error')this._acknowledgeError();}
 }
 
 for(const [name,element] of [['wecker-manager-time-wheel',MusicManagerTimeWheel],['wecker-manager-card',MusicManagerAlarmCard],['wecker-manager-card-editor',MusicManagerAlarmCardEditor],['wecker-manager-day-manager',WeckerManagerDayManager],['wecker-manager-alarm-manager',WeckerManagerAlarmManager],['wecker-manager-status-card',WeckerManagerStatusCard],['wecker-manager-status-editor',WeckerManagerStatusEditor]])if(!customElements.get(name))customElements.define(name,element);

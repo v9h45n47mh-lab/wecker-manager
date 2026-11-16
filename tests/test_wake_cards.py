@@ -301,7 +301,7 @@ class WakeCardTests(IsolatedAsyncioTestCase):
         self.assertEqual(current['settings'],settings);self.assertEqual(current['binding'],binding)
         self.assertTrue(any(a.args[2].get('entity_id')=='light.two' for a in hass.services.async_call.await_args_list))
         hass.data.pop(self.wake.RUNTIME)
-        data=self.wake.snapshot(hass,current)
+        data=self.wake.snapshot(hass,current,admin)
         self.assertEqual(data['execution_error'],report);self.assertEqual(data['error'],report['summary'])
         data['execution_error']['failures'].clear();self.assertEqual(len(current['execution_error']['failures']),2)
         connection=NS(user=other,send_result=Mock(),send_error=Mock())
@@ -313,6 +313,108 @@ class WakeCardTests(IsolatedAsyncioTestCase):
         await self.wake.tick(hass,self.now+timedelta(days=3))
         current=entry.options['wake_cards'][c['alarm_id']]
         self.assertNotIn('execution_error',current);self.assertEqual(self.wake.snapshot(hass,current)['error'],'')
+
+    def failed_record(self, hass, entry, config):
+        record=entry.options['wake_cards'][config['alarm_id']]
+        record['execution_error']={'at':self.now.isoformat(),'kind':'schultag','phase':'wake',
+            'day_name':'Schultag','summary':'1 Weckaktion fehlgeschlagen.',
+            'failures':[{'name':'Bett','entity_id':'light.one','action':'Licht einschalten',
+                         'code':'timeout','message':'Das Gerät hat nicht rechtzeitig geantwortet.','error_type':'TimeoutError'}]}
+        self.wake.runtime(hass)['errors'][config['card_id']]=record['execution_error']['summary']
+        return record
+
+    async def test_admin_acknowledgment_is_durable_and_never_resets_or_executes_the_alarm(self):
+        hass,entry,_,admin,_,c,*_=self.fixture();await self.activate(hass,admin,c)
+        record=self.failed_record(hass,entry,c)
+        record['runs']={'2026-11-13/schultag/wake':{'plan':{'time':'06:00'},'at':self.now.isoformat()}}
+        record['stops']=[{'entity_id':'media_player.sonos','at':'2026-11-13T06:20:00+01:00'}]
+        before=deepcopy(record);token=self.wake.snapshot(hass,record,admin)['error_token']
+        hass.services.async_call.reset_mock();hass.mass.player_queues.play_media.reset_mock();hass.bus.async_fire.reset_mock()
+        connection=NS(user=admin,send_result=Mock(),send_error=Mock())
+        await self.wake.websocket_wake_card(hass,connection,{'id':1,'action':'acknowledge_error',
+            'alarm_id':c['alarm_id'],'card_id':c['card_id'],'error_token':token})
+        connection.send_error.assert_not_called()
+        result=connection.send_result.call_args.args[1]
+        self.assertEqual(result['error'],'');self.assertIsNone(result['execution_error']);self.assertIsNone(result['error_token'])
+        before.pop('execution_error');self.assertEqual(entry.options['wake_cards'][c['alarm_id']],before)
+        self.assertNotIn(c['card_id'],self.wake.runtime(hass)['errors'])
+        hass.services.async_call.assert_not_awaited();hass.mass.player_queues.play_media.assert_not_awaited()
+        hass.bus.async_fire.assert_called_once_with(self.wake.EVENT,{'alarm_id':c['alarm_id']})
+        hass.data.pop(self.wake.RUNTIME)
+        self.assertEqual(self.wake.snapshot(hass,entry.options['wake_cards'][c['alarm_id']],admin)['error'],'')
+        again=await self.wake.acknowledge_error(hass,admin,c['alarm_id'],c['card_id'],token)
+        self.assertEqual(again['error'],'');self.assertEqual(entry.options['wake_cards'][c['alarm_id']],before)
+
+    async def test_owner_and_delegated_manager_cannot_read_or_acknowledge_diagnostics(self):
+        hass,entry,owner,admin,_,c,*_=self.fixture();await self.activate(hass,admin,c)
+        record=self.failed_record(hass,entry,c);token=self.wake.snapshot(hass,record,admin)['error_token']
+        for caller in [None,owner]:
+            data=self.wake.snapshot(hass,record,caller)
+            self.assertEqual(data['error'],'');self.assertIsNone(data['execution_error']);self.assertIsNone(data['error_token'])
+        for manage in [False,True]:
+            hass.data['family_access_manager']=NS(application_protocol=1,application_permissions=lambda u,a:{'view':True,'use_own':True,'manage':manage})
+            connection=NS(user=owner,send_result=Mock(),send_error=Mock())
+            for action in ['get','update']:
+                connection.send_result.reset_mock();connection.send_error.reset_mock()
+                await self.wake.websocket_wake_card(hass,connection,{'id':1,'action':action,
+                    'alarm_id':c['alarm_id'],'card_id':c['card_id'],'settings':deepcopy(record['settings']),
+                    'revision':entry.options['wake_cards'][c['alarm_id']]['revision']})
+                connection.send_error.assert_not_called();data=connection.send_result.call_args.args[1]
+                self.assertEqual(data['error'],'');self.assertIsNone(data['execution_error']);self.assertIsNone(data['error_token'])
+            connection.send_result.reset_mock();connection.send_error.reset_mock()
+            await self.wake.websocket_wake_card(hass,connection,{'id':1,'action':'acknowledge_error',
+                'alarm_id':c['alarm_id'],'card_id':c['card_id'],'error_token':token})
+            connection.send_result.assert_not_called();self.assertEqual(connection.send_error.call_args.args[1],'unauthorized')
+            self.assertIn('execution_error',entry.options['wake_cards'][c['alarm_id']])
+
+    async def test_setup_status_redacts_older_admin_preview_without_changing_the_saved_draft(self):
+        hass,entry,owner,admin,_,c,*_=self.fixture();await self.activate(hass,admin,c)
+        record=self.failed_record(hass,entry,c)
+        result={'pending':True,'preview':self.wake.snapshot(hass,record,admin)};original=deepcopy(result)
+        hass.data['family_access_manager']=NS(application_protocol=1,application_permissions=lambda u,a:{'view':True,'use_own':True,'manage':True})
+        connection=NS(user=owner,send_result=Mock(),send_error=Mock())
+        with patch('custom_components.wecker_manager.card_setups.setup_status',return_value=result):
+            await self.wake.websocket_wake_card(hass,connection,{'id':1,'action':'setup_status','setup_id':'old_draft'})
+        connection.send_error.assert_not_called();data=connection.send_result.call_args.args[1]['preview']
+        self.assertEqual(data['error'],'');self.assertIsNone(data['execution_error']);self.assertIsNone(data['error_token'])
+        self.assertEqual(result['preview'],original['preview'])
+
+    async def test_stale_acknowledgment_preserves_new_report_and_tokens_are_bound_to_the_card(self):
+        hass,entry,_,admin,_,c,*_=self.fixture();await self.activate(hass,admin,c)
+        record=self.failed_record(hass,entry,c);token=self.wake.snapshot(hass,record,admin)['error_token']
+        record['execution_error']['at']=(self.now+timedelta(minutes=5)).isoformat()
+        current=self.wake.snapshot(hass,record,admin)['error_token'];self.assertNotEqual(current,token)
+        with self.assertRaises(self.wake.AccessError) as caught:
+            await self.wake.acknowledge_error(hass,admin,c['alarm_id'],c['card_id'],token)
+        self.assertEqual(caught.exception.code,'conflict');self.assertIn('execution_error',record)
+        other=deepcopy(record);other['binding']['card_id']='another_card'
+        self.assertNotEqual(self.wake.snapshot(hass,other,admin)['error_token'],current)
+        for invalid in [None,'',current[:-1],'x'*64]:
+            with self.assertRaises(self.wake.AccessError):await self.wake.acknowledge_error(hass,admin,c['alarm_id'],c['card_id'],invalid)
+        await self.wake.acknowledge_error(hass,admin,c['alarm_id'],c['card_id'],current)
+        self.assertNotIn('execution_error',entry.options['wake_cards'][c['alarm_id']])
+
+    async def test_failed_persistence_keeps_the_message_and_acknowledging_generic_errors_works(self):
+        hass,entry,_,admin,_,c,*_=self.fixture();await self.activate(hass,admin,c)
+        record=self.failed_record(hass,entry,c);before=deepcopy(record);token=self.wake.snapshot(hass,record,admin)['error_token']
+        with patch.object(hass.config_entries,'async_update_entry',side_effect=RuntimeError('storage failed')):
+            with self.assertRaises(RuntimeError):await self.wake.acknowledge_error(hass,admin,c['alarm_id'],c['card_id'],token)
+        self.assertEqual(entry.options['wake_cards'][c['alarm_id']],before)
+        self.assertEqual(self.wake.runtime(hass)['errors'][c['card_id']],before['execution_error']['summary'])
+        record.pop('execution_error');self.wake.runtime(hass)['errors'][c['card_id']]='Kalender nicht erreichbar'
+        token=self.wake.snapshot(hass,record,admin)['error_token']
+        result=await self.wake.acknowledge_error(hass,admin,c['alarm_id'],c['card_id'],token)
+        self.assertEqual(result['error'],'');self.assertEqual(entry.options['wake_cards'][c['alarm_id']],record)
+
+    async def test_admin_role_is_rechecked_after_waiting_for_the_record(self):
+        hass,entry,_,admin,_,c,*_=self.fixture();await self.activate(hass,admin,c)
+        record=self.failed_record(hass,entry,c);token=self.wake.snapshot(hass,record,admin)['error_token']
+        checked=self.wake.checked_record
+        async def revoke(*args,**kwargs):
+            result=await checked(*args,**kwargs);admin.is_admin=False;return result
+        with patch.object(self.wake,'checked_record',side_effect=revoke):
+            with self.assertRaises(self.wake.AccessError) as caught:await self.wake.acknowledge_error(hass,admin,c['alarm_id'],c['card_id'],token)
+        self.assertEqual(caught.exception.code,'unauthorized');self.assertIn('execution_error',entry.options['wake_cards'][c['alarm_id']])
 
     async def test_cancelled_execution_does_not_clear_the_previous_device_error(self):
         hass,entry,owner,admin,_,c,_,_=self.fixture();await self.activate(hass,admin,c)

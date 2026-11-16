@@ -1,4 +1,6 @@
-# UI-Kit-Prüfung für Wecker 1.13.2
+# UI-Kit-Prüfung für Wecker 1.14.0
+
+**Meldung quittieren** verwendet den gemeinsamen UI-Kit-Button und das bestehende Symbol `success`. Die Aktion steht unter den Fehlerdetails und passt auch auf schmale Mobilgeräte. Die Browserprüfung deckt Wecker- und Statuskarte bei 1100, 390 und 320 Pixeln in hellen und dunklen Themes ab. Sie prüft außerdem Live-Aktualisierung nach dem Quittieren sowie ausgeblendete Diagnosen für Nicht-Admins bei erhaltenen Wecker-Bedienfeldern.
 
 Der Wecker bindet HA UI Kit 1.4.1 unverändert am Commit `393474e75869ba79195d800624a5a793a51fe2c4` ein. Der Build prüft die festgehaltenen Prüfsummen von JavaScript, CSS und Lizenz.
 
