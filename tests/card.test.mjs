@@ -7,6 +7,7 @@ import {parseHTML} from 'linkedom';
 const bundle=await readFile(new URL('../dist/wecker-manager-card.js',import.meta.url),'utf8');
 const clone=value=>JSON.parse(JSON.stringify(value));
 const flush=async()=>{for(let i=0;i<12;i++)await new Promise(resolve=>setImmediate(resolve));};
+const executionFailure=()=>({at:'2026-11-16T05:20:00+00:00',day_name:'Wochentag',phase:'sunrise',summary:'2 Weckaktionen fehlgeschlagen.',failures:[{name:'Ankleide',entity_id:'light.one',action:'Sonnenaufgang',code:'timeout',message:'Das Gerät hat nicht rechtzeitig geantwortet.',error_type:'TimeoutError'},{name:'Bett',entity_id:'light.two',action:'Sonnenaufgang',code:'device_error',message:'Die Geräteintegration hat den Befehl nicht ausgeführt.',error_type:'HomeAssistantError'}]});
 function fixture({days,settings:override,header,status=false,admin=false,upcoming={schultag:{active:true,label:'13.11. 06:12'},wochenende:{active:false},ferien:{active:false}}}={}){
  const {window}=parseHTML('<!doctype html><html><body></body></html>'),{document}=window;
  window.HTMLElement.prototype.showModal=function(){this.open=true;};
@@ -43,6 +44,23 @@ test('wake wheel initializes at the saved time and cancel never persists',async(
  const e=fixture();await flush();e.click('time','[data-kind="schultag"]');await flush();const wheel=e.card.shadowRoot.querySelector('wecker-manager-time-wheel');
  assert.equal(wheel.value,'06:12');wheel.shadowRoot.querySelector('[data-wheel="0"]').scrollTop=7*40;wheel.shadowRoot.querySelector('[data-wheel="1"]').scrollTop=23*40;
  assert.equal(wheel.value,'07:23');e.click('cancel-time');await flush();assert.equal(e.record.settings.types.schultag.time,'06:12');assert.equal(e.calls.filter(c=>c.action==='update').length,0);e.card.remove();
+});
+
+test('execution details appear on alarm and status cards, escape text and respect revocation',async()=>{
+ for(const status of [false,true]){
+  const e=fixture({status});await flush();const report=executionFailure();report.failures[0].name='<img src=x onerror=bad()> Ankleide';
+  e.remoteChange(record=>{record.error=report.summary;record.execution_error=report;});await flush();
+  const host=e.card.shadowRoot.querySelector(status?'#status-error':'#wake-status');
+  assert.match(host.textContent,/2 Weckaktionen/);assert.match(host.textContent,/Wochentag · Sonnenaufgang/);assert.match(host.textContent,/light.one/);assert.match(host.textContent,/light.two/);assert.match(host.textContent,/Timeout|rechtzeitig/);assert.equal(host.querySelectorAll('.setting-row').length,2);assert.equal(host.querySelector('img'),null);assert.match(host.textContent,/<img src=x onerror=bad\(\)> Ankleide/);
+  assert.equal(host.querySelector('[data-ui="collapse"]').getAttribute('aria-expanded'),'true');host.querySelector('[data-ui="collapse"]').click();assert.equal(host.querySelector('[data-ui="collapse"]').getAttribute('aria-expanded'),'false');
+  e.card._familyAccess={use_own:false,manage:false};e.card._render();assert(!host.textContent.includes('Ankleide'));e.card.remove();
+ }
+});
+
+test('generic and cleared execution errors do not retain stale device details',async()=>{
+ const e=fixture();await flush();const report=executionFailure();e.remoteChange(record=>{record.error=report.summary;record.execution_error=report;});await flush();assert.equal(e.card.shadowRoot.querySelectorAll('#wake-status .setting-row').length,2);
+ e.remoteChange(record=>{record.error='Kalender nicht erreichbar';});await flush();assert.match(e.card.shadowRoot.querySelector('#wake-status').textContent,/Kalender/);assert.equal(e.card.shadowRoot.querySelector('#wake-error-details-content'),null);
+ e.remoteChange(record=>{record.error='';record.execution_error=null;});await flush();assert.equal(e.card.shadowRoot.querySelector('#wake-status').textContent,'');e.card.remove();
 });
 test('wake wheel commit, presets and music switches save shared settings',async()=>{
  const e=fixture();await flush();e.click('time','[data-kind="schultag"]');const wheel=e.card.shadowRoot.querySelector('wecker-manager-time-wheel');wheel.shadowRoot.querySelector('[data-wheel="0"]').scrollTop=7*40;wheel.shadowRoot.querySelector('[data-wheel="1"]').scrollTop=23*40;e.click('save-time');await flush();
