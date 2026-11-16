@@ -215,6 +215,65 @@ def sunrise_minutes(record, kind="schultag"):
     return record["settings"]["types"].get(kind, {}).get("sunrise_minutes", record["settings"].get("sunrise_minutes", record["binding"].get("sunrise_minutes", 0)) if kind == "schultag" else 0)
 
 
+def run_plan(record, kind, phase):
+    """Keep the exact configured schedule behind a completed phase."""
+    plan = {"time": record["settings"]["types"][kind]["time"]}
+    if phase == "sunrise":
+        plan["sunrise_minutes"] = sunrise_minutes(record, kind)
+    return plan
+
+
+def runs_for_settings(record, settings):
+    """A retimed phase is a new appointment; unrelated edits keep its guard."""
+    runs = deepcopy(record.get("runs", {}))
+    today = dt_util.as_local(dt_util.utcnow()).date().isoformat()
+    updated = {**record, "settings": settings}
+    for kind in settings["types"].keys() & record["settings"]["types"].keys():
+        for phase in ("wake", "sunrise"):
+            if run_plan(record, kind, phase) != run_plan(updated, kind, phase):
+                runs.pop(f"{today}/{kind}/{phase}", None)
+    return runs
+
+
+def recover_run_plans(record, now):
+    """Repair old future guards once their configured phase cannot have run yet.
+
+    Legacy markers have no time. Keep them if any valid occurrence is past,
+    including the first occurrence of an ambiguous DST wall time.
+    """
+    runs = deepcopy(record.get("runs", {}))
+    local_now = dt_util.as_local(now)
+    today = local_now.date().isoformat()
+    for kind, settings in record["settings"]["types"].items():
+        for phase in ("wake", "sunrise"):
+            key = f"{today}/{kind}/{phase}"
+            marker = runs.get(key)
+            if isinstance(marker, dict):
+                if isinstance(marker.get("plan"), dict) and marker["plan"] != run_plan(record, kind, phase):
+                    runs.pop(key, None)
+                continue
+            if marker is not True:
+                continue
+            minutes = sunrise_minutes(record, kind) if phase == "sunrise" else 0
+            if phase == "sunrise" and not minutes:
+                continue
+            hour, minute = map(int, settings["time"].split(":"))
+            instants = set()
+            for fold in (0, 1):
+                target = local_now.replace(hour=hour, minute=minute, second=0, microsecond=0, fold=fold)
+                if dt_util.as_local(target.astimezone(timezone.utc)).replace(tzinfo=None) != target.replace(tzinfo=None):
+                    continue
+                due = target - timedelta(minutes=minutes) if minutes else target
+                if due.date() != local_now.date():
+                    continue
+                instant = due.astimezone(timezone.utc)
+                if dt_util.as_local(instant).replace(tzinfo=None) == due.replace(tzinfo=None):
+                    instants.add(instant)
+            if instants and all(instant > now.astimezone(timezone.utc) for instant in instants):
+                runs.pop(key, None)
+    return runs
+
+
 def has_dimmable_light(hass, binding):
     for item in binding["lights"]:
         state = hass.states.get(item["entity_id"])
@@ -664,7 +723,7 @@ async def update_card(hass, caller, alarm_id, card_id, settings, revision, confi
         if playback is not None:
             playback = validate_playback(playback)
             await check_playback_selection(hass, owner, alarm_id, playback)
-        updated = {**record, "settings": validated, "revision": record["revision"] + 1}
+        updated = {**record, "settings": validated, "runs": runs_for_settings(record, validated), "revision": record["revision"] + 1}
         if playback is not None:
             updated["playback"] = playback
         save_record(hass, entry, alarm_id, updated)
@@ -1210,7 +1269,7 @@ async def tick(hass, when):
                     if run_id in current.get("runs", {}) or (kind, phase, date) not in due_phases(hass, current, when, calendar_errors):
                         continue
                     runs = {key: val for key, val in current.get("runs", {}).items() if key[:10] >= (when.date() - timedelta(days=2)).isoformat()}
-                    runs[run_id] = True
+                    runs[run_id] = {"plan": run_plan(current, kind, phase), "at": when.astimezone(timezone.utc).isoformat()}
                     current = {**current, "runs": runs}
                     save_record(hass, entry, alarm_id, current, notify=False)
                 await execute(hass, entry, current, owner, kind, phase)
@@ -1234,6 +1293,12 @@ def async_setup_wake_cards(hass):
     state = runtime(hass)
     entry = entry_for(hass)
     templates, cards, changed = shared_days.migrate(entry.options)
+    for alarm_id, record in list(cards.items()):
+        runs = recover_run_plans(record, dt_util.utcnow())
+        if runs != record.get("runs", {}):
+            cards[alarm_id] = {**record, "runs": runs}
+            if alarm_id not in changed:
+                changed.append(alarm_id)
     if changed or templates != entry.options.get(shared_days.LIBRARY, {}):
         commit_shared(hass, entry, templates, cards, changed)
     for alarm_id in cards:

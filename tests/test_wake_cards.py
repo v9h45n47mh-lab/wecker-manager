@@ -661,6 +661,93 @@ class WakeCardTests(IsolatedAsyncioTestCase):
             await self.wake.configure_days(hass,admin,c['alarm_id'],c['card_id'],[{**first['days'][0],'calendar_entity':'calendar.private'}],first['revision'])
         self.assertEqual(entry.options,before)
 
+    def schedule_bridges(self):
+        import os
+        from pathlib import Path
+        root=Path(__file__).parents[1]
+        modules=[]
+        for name,folder,file in [('light','light-manager','custom_components/light_manager/alarm_schedule.py'),('shutter','shutter-manager','custom_components/rollladenplaner/wecker.py')]:
+            path=Path(os.environ.get(name.upper()+'_MANAGER_SOURCE',str(root/'.test-deps'/folder)))/file
+            spec=importlib.util.spec_from_file_location('_wake_'+name+'_schedule_test',path)
+            module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module);modules.append(module)
+        return modules
+
+    async def test_retimed_completed_alarm_reappears_in_both_managers_and_executes_once(self):
+        hass,entry,owner,admin,_,c,_,_=self.fixture()
+        c['days']=[self.custom_day(display_name='Wochentag',calendar_entity='',music_mode='switchable',confirm_disable=False)]
+        data=await self.wake.create_card(hass,admin,c);settings=deepcopy(data['settings'])
+        settings['types']['arbeit'].update(enabled=True,time='06:30',sunrise_minutes=10,music=False)
+        await self.wake.update_card(hass,owner,c['alarm_id'],c['card_id'],settings,data['revision'])
+        type(self).now=self.now.replace(hour=6,minute=20)
+        with patch.object(self.wake.asyncio,'sleep',new=AsyncMock()):await self.wake.tick(hass,self.now)
+        type(self).now=self.now.replace(minute=30);await self.wake.tick(hass,self.now)
+        current=entry.options['wake_cards'][c['alarm_id']]
+        self.assertEqual(current['runs']['2026-11-13/arbeit/wake']['plan'],{'time':'06:30'})
+        type(self).now=self.now.replace(hour=7,minute=5)
+        self.assertFalse((await self.wake.upcoming_info(hass,owner,c['alarm_id'],c['card_id']))['types']['arbeit']['active'])
+        current['runs']['2026-11-12/arbeit/wake']=True
+        settings=deepcopy(current['settings']);settings['types']['arbeit']['time']='08:15'
+        await self.wake.update_card(hass,owner,c['alarm_id'],c['card_id'],settings,current['revision'])
+        current=entry.options['wake_cards'][c['alarm_id']]
+        self.assertEqual(current['runs'],{'2026-11-12/arbeit/wake':True})
+        plan=(await self.wake.upcoming_info(hass,owner,c['alarm_id'],c['card_id']))['types']['arbeit']
+        self.assertTrue(plan['active']);self.assertEqual(plan['at'],'2026-11-13T07:15:00+00:00')
+        light,shutter=self.schedule_bridges();before=deepcopy(entry.options);calls=hass.services.async_call.await_count
+        lighting=await light.async_alarm_schedule(hass,admin,now=self.now,zone='Europe/Berlin')
+        covers=await shutter.async_planned_wecker(hass,admin,[{'id':'one','cover':'cover.one'},{'id':'two','cover':'cover.two'}],self.now,'Europe/Berlin')
+        self.assertFalse(lighting['incomplete']);self.assertEqual(len(lighting['items']),4);self.assertEqual(len(covers),2)
+        self.assertEqual({item['due'] for item in lighting['items']},{'2026-11-13T07:05:00+00:00','2026-11-13T07:15:00+00:00'})
+        self.assertTrue(all(item['time']=='2026-11-13T07:15:00+00:00' for item in covers))
+        self.assertEqual(entry.options,before);self.assertEqual(hass.services.async_call.await_count,calls)
+        type(self).now=self.now.replace(hour=8,minute=5)
+        with patch.object(self.wake.asyncio,'sleep',new=AsyncMock()):await self.wake.tick(hass,self.now)
+        type(self).now=self.now.replace(minute=15);await self.wake.tick(hass,self.now)
+        calls=hass.services.async_call.await_count;await self.wake.tick(hass,self.now)
+        self.wake.async_unload_wake_cards(hass);self.wake.async_setup_wake_cards(hass);await self.wake.tick(hass,self.now)
+        self.assertEqual(hass.services.async_call.await_count,calls)
+        current=entry.options['wake_cards'][c['alarm_id']]
+        self.assertEqual(current['runs']['2026-11-13/arbeit/wake']['plan'],{'time':'08:15'})
+        self.assertEqual(current['runs']['2026-11-13/arbeit/sunrise']['plan'],{'time':'08:15','sunrise_minutes':10})
+
+    async def test_upgrade_recovers_legacy_guards_for_a_future_retimed_alarm(self):
+        hass,entry,owner,admin,_,c,_,_=self.fixture();c['days']=[self.custom_day(calendar_entity='',confirm_disable=False)]
+        data=await self.wake.create_card(hass,admin,c);record=entry.options['wake_cards'][c['alarm_id']]
+        record['settings']['types']['arbeit'].update(enabled=True,time='08:15',sunrise_minutes=10)
+        record['runs']={'2026-11-13/arbeit/wake':True,'2026-11-13/arbeit/sunrise':True,'2026-11-12/arbeit/wake':True}
+        original=deepcopy(record);type(self).now=self.now.replace(hour=7,minute=5)
+        hass.services.async_call.reset_mock();self.wake.async_setup_wake_cards(hass)
+        current=entry.options['wake_cards'][c['alarm_id']]
+        self.assertEqual(current['runs'],{'2026-11-12/arbeit/wake':True})
+        for key in ['settings','binding','revision']:self.assertEqual(current[key],original[key])
+        hass.services.async_call.assert_not_awaited()
+        options=deepcopy(entry.options);self.wake.async_setup_wake_cards(hass);self.assertEqual(entry.options,options)
+        self.assertTrue((await self.wake.upcoming_info(hass,owner,c['alarm_id'],c['card_id']))['types']['arbeit']['active'])
+
+    async def test_unrelated_edits_and_switching_do_not_rearm_completed_phases(self):
+        hass,entry,owner,admin,_,c,_,_=self.fixture();await self.activate(hass,admin,c)
+        record=entry.options['wake_cards'][c['alarm_id']]
+        record['runs']={'2026-11-13/schultag/wake':True,'2026-11-13/schultag/sunrise':True,'2026-11-13/wochenende/wake':True}
+        settings=deepcopy(record['settings']);settings['volume']=12;settings['types']['schultag']['presets']=['06:00','06:30']
+        await self.wake.update_card(hass,owner,c['alarm_id'],c['card_id'],settings,record['revision'])
+        current=entry.options['wake_cards'][c['alarm_id']];self.assertEqual(current['runs'],record['runs'])
+        await self.wake.set_enabled(hass,owner,c['alarm_id'],c['card_id'],'schultag',False,['schultag'])
+        await self.wake.set_enabled(hass,owner,c['alarm_id'],c['card_id'],'schultag',True)
+        current=entry.options['wake_cards'][c['alarm_id']];self.assertEqual(current['runs'],record['runs'])
+        settings=deepcopy(current['settings']);settings['types']['schultag']['sunrise_minutes']=10
+        await self.wake.update_card(hass,owner,c['alarm_id'],c['card_id'],settings,current['revision'])
+        self.assertEqual(entry.options['wake_cards'][c['alarm_id']]['runs'],{'2026-11-13/schultag/wake':True,'2026-11-13/wochenende/wake':True})
+
+    async def test_run_recovery_preserves_first_dst_fold_and_matching_plan_after_clock_rollback(self):
+        hass,entry,_,admin,_,c,_,_=self.fixture();c['days']=[self.custom_day(calendar_entity='',weekdays=list(range(7)))]
+        await self.wake.create_card(hass,admin,c);record=entry.options['wake_cards'][c['alarm_id']]
+        record['settings']['types']['arbeit'].update(enabled=True,time='02:30',sunrise_minutes=10)
+        record['runs']={'2026-10-25/arbeit/wake':True,'2026-10-25/arbeit/sunrise':True}
+        now=datetime(2026,10,25,2,10,tzinfo=ZoneInfo('Europe/Berlin'),fold=1)
+        self.assertEqual(self.wake.recover_run_plans(record,now),record['runs'])
+        record['settings']['types']['arbeit']['time']='08:15'
+        record['runs']={'2026-11-13/arbeit/wake':{'plan':{'time':'08:15'},'at':'2026-11-13T07:15:00+00:00'}}
+        self.assertEqual(self.wake.recover_run_plans(record,self.now.replace(hour=7,minute=5)),record['runs'])
+
     async def test_upcoming_window_checks_enabled_weekdays_boundaries_and_completed_runs(self):
         hass,entry,owner,admin,_,c,_,_=self.fixture()
         type(self).now=self.now.replace(hour=10)
