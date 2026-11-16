@@ -25,6 +25,7 @@ from .const import DOMAIN, MUSIC_DOMAIN, VERSION
 from .day_types import legacy_days, day_definitions, validate_days, settings_for_days, calendar_mode
 from . import shared_days
 from . import hue_scenes
+from .execution_errors import action_failure, failure_report
 from ..music_manager.helpers import music_assistant_client
 
 KEY = "wake_cards"
@@ -199,12 +200,14 @@ def snapshot(hass, record):
     settings["sunrise_minutes"] = sunrise_minutes(record)
     for kind, item in settings["types"].items():
         item["sunrise_minutes"] = sunrise_minutes(record, kind)
+    report = record.get("execution_error")
+    error = runtime(hass)["errors"].get(record["binding"]["card_id"], report["summary"] if report else "")
     return {"exists": True, "binding": deepcopy(record["binding"]),
             "playback": playback_policy(record),
             "settings": settings, "days": day_definitions(record), "revision": record["revision"],
             "name": record.get("name", "Wecker"), "version": VERSION,
             "sunrise_available": has_dimmable_light(hass, record["binding"]),
-            "error": runtime(hass)["errors"].get(record["binding"]["card_id"], "")}
+            "error": error, "execution_error": deepcopy(report) if report and report["summary"] == error else None}
 
 
 def sunrise_minutes(record, kind="schultag"):
@@ -1057,7 +1060,12 @@ async def play_speaker(hass, entry, record, owner, source):
 async def execute(hass, entry, record, owner, kind, phase):
     binding = record["binding"]
     context = Context(user_id=owner.id)
-    tasks = []
+    tasks, targets = [], []
+
+    def add_action(entity_id, action, task):
+        targets.append((entity_id, action))
+        tasks.append(task)
+
     scene_id = binding.get("hue_scene", "")
     covered = hue_scenes.covered_lights(hass, binding["lights"], scene_id) if scene_id else set()
 
@@ -1111,18 +1119,36 @@ async def execute(hass, entry, record, owner, kind, phase):
 
     for item in binding["lights"]:
         if not covered or item["entity_id"] not in covered:
-            tasks.append(light_action(item))
+            action = "Sonnenaufgang" if phase == "sunrise" else "Hue-Szene anwenden" if item.get("hue_scene") else "Licht einschalten"
+            add_action(item["entity_id"], action, light_action(item))
     if scene_id:
-        tasks.append(scene_action())
+        add_action(scene_id, "Sonnenaufgang mit Hue-Szene" if phase == "sunrise" else "Hue-Szene aktivieren", scene_action())
     if phase == "wake":
-        tasks += [cover_action(item) for item in binding["covers"]]
+        for item in binding["covers"]:
+            add_action(item["entity_id"], "Rollladen fahren", cover_action(item))
         if record["settings"]["types"][kind]["music"]:
-            tasks += [play_speaker(hass, entry, record, owner, source) for source in binding["speakers"]]
+            for source in binding["speakers"]:
+                add_action(source, "Weckmusik starten", play_speaker(hass, entry, record, owner, source))
     results = await asyncio.gather(*tasks, return_exceptions=True)
-    failures = [result for result in results if isinstance(result, Exception)]
+    for result in results:
+        if isinstance(result, asyncio.CancelledError):
+            raise result
+    failures = [action_failure(hass, entity_id, action, result)
+                for (entity_id, action), result in zip(targets, results) if isinstance(result, Exception)]
+    report = failure_report(record, kind, phase, failures) if failures else None
+    async with runtime(hass)["lock"]:
+        current = entry.options.get(KEY, {}).get(binding["alarm_id"])
+        # Don't attach old device details to a card whose bindings changed.
+        if current and current["binding"] == binding and (report or current.get("execution_error")):
+            updated = {**current}
+            if report:
+                updated["execution_error"] = report
+            else:
+                updated.pop("execution_error", None)
+            save_record(hass, entry, binding["alarm_id"], updated, notify=False)
     if failures:
-        # Don't log upstream exceptions: provider errors can contain private data.
-        raise AccessError("device_error", f"{len(failures)} Weckaktion(en) fehlgeschlagen. Geräte, Verbindung und Berechtigungen prüfen.")
+        # Upstream messages can contain URLs or credentials; report safe details.
+        raise AccessError("device_error", report["summary"])
 
 
 async def stop_due(hass, entry, alarm_id, record, owner):

@@ -1,4 +1,4 @@
-# UI-Kit-Prüfung für Wecker 1.11.0
+# UI-Kit-Prüfung für Wecker 1.13.1
 
 Der Wecker bindet HA UI Kit 1.4.1 unverändert am Commit `393474e75869ba79195d800624a5a793a51fe2c4` ein. Der Build prüft die festgehaltenen Prüfsummen von JavaScript, CSS und Lizenz.
 
@@ -29,3 +29,5 @@ Musik und Ausschaltverhalten in der Tagestypenverwaltung verwenden die gemeinsam
 Die Linie vor der Hintergrundlegende verwendet die gemeinsame Theme-Trennfarbe und den UI-Kit-Abstand für Abschnitte. Browserbilder prüfen die kräftigere 24-Stunden-Markierung und die Trennlinie in hellen und dunklen Themes bei Desktop- und Mobilbreiten.
 
 Das Sonnenaufgangskennzeichen verwendet unmittelbar `icon('sunrise')` aus dem unveränderten UI Kit. Der lokale Layoutkontext setzt dessen Größenvariable `--fui-icon` auf 18 Pixel und die primäre Theme-Farbe auf Blau. Das SVG selbst wird unverändert übernommen. Browserbilder prüfen die Anzeige am Namen für Schultag und Wochenende in Desktop-/Mobilbreiten und beiden Themes; Funktionsprüfungen decken Abschalten, Abbrechen, eigene Tagestypen, bestehende Schultagsvorgaben und Live-Änderungen ab.
+
+Die Fehlerdetails verwenden unveränderte UI-Kit-Hinweise, Abschnitte und Gerätezeilen. Browserbilder prüfen zwei gleichzeitige Gerätefehler sowie die Statuskarte bei 1100, 390 und 320 Pixeln in hellen und dunklen Themes. Gerätenamen und Meldungen werden als Text ausgegeben; lange Entitätskennungen brechen um.

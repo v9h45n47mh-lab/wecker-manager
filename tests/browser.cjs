@@ -73,7 +73,7 @@ let browser;
  await action('settings').click();const settings=card().locator('#wake-settings-dialog');
  const slider=settings.locator('#wake-volume');assert.equal(await slider.getAttribute('min'),'5');assert.equal(await slider.getAttribute('max'),'15');
  assert.equal(await settings.locator('select').count(),4);assert(await settings.locator('#wake-sunrise-setting').isVisible());assert.equal(await settings.locator('[data-ui-multi]').count(),0);
- assert(await settings.evaluate(el=>el.getBoundingClientRect().width<=480));assert.match(await settings.locator('.version-info').innerText(),/Wecker 1\.13\.0/);
+ assert(await settings.evaluate(el=>el.getBoundingClientRect().width<=480));assert.match(await settings.locator('.version-info').innerText(),/Wecker 1\.13\.1/);
  assert(await settings.locator('#wake-settings').evaluate(el=>el.lastElementChild.classList.contains('version-info')));
  await slider.press('End');await settings.locator('#wake-sunrise-setting').selectOption('15');
  await settings.locator('[data-action="preset-remove"][data-kind="schultag"]').first().click();
@@ -290,5 +290,10 @@ let browser;
  }
  await page.evaluate(async()=>{wakeDemo.card._familyAccess={view:false,use_own:true,manage:false};await wakeDemo.card._load(true);});await action('time').first().waitFor();
  await page.evaluate(()=>wakeDemo.switchUser('paul'));await card().getByRole('alert').waitFor();assert.equal(await action('time').count(),0);
+ await page.goto(url+'?real_music=1&execution_failure=1');await action('time').first().waitFor();await card().getByText('Fehlerdetails',{exact:true}).waitFor();
+ assert.equal(await card().locator('#wake-status .setting-row').count(),2);assert(await card().getByText('Ankleide',{exact:true}).isVisible());assert(await card().getByText('Bett',{exact:true}).isVisible());assert(await card().getByText('Wochentag · Sonnenaufgang',{exact:false}).isVisible());
+ for(const width of [1100,390,320])for(const dark of [false,true]){await page.setViewportSize({width,height:1100});await page.evaluate(d=>document.body.classList.toggle('dark',d),dark);assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));await card().screenshot({path:path.join(screens,`execution-failure-${width}-${dark?'dark':'light'}.png`)});}
+ await page.evaluate(()=>{const element=document.createElement('wecker-manager-status-card');element.id='error-status-card';element.setConfig({...wakeDemo.config,name:'Schlafzimmer'});element.hass=wakeDemo.makeHass();document.body.append(element);});const errorStatus=page.locator('#error-status-card');await errorStatus.getByText('Fehlerdetails',{exact:true}).waitFor();assert.equal(await errorStatus.locator('#status-error .setting-row').count(),2);
+ for(const width of [1100,390,320])for(const dark of [false,true]){await page.setViewportSize({width,height:1100});await page.evaluate(d=>document.body.classList.toggle('dark',d),dark);assert(await errorStatus.evaluate(el=>el.scrollWidth<=el.clientWidth));await errorStatus.screenshot({path:path.join(screens,`execution-failure-status-${width}-${dark?'dark':'light'}.png`)});}
  assert.deepEqual(errors,[]);console.log('PASS universal wake card: wheels, settings, fixed multi-device editor, account isolation, live sync, responsive theme/layout screenshots, guided day policies, calendar polarity, per-type confirmation and single-device dialogs');
 })().catch(error=>{console.error(error);process.exitCode=1;}).finally(async()=>{await browser?.close();server.close();});

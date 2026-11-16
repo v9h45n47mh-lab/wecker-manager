@@ -97,4 +97,5 @@ async def apply_light_actions(bridge, actions, transition=None):
         if transition is not None:
             from aiohue.v2.models.feature import DynamicsFeaturePut
             action.dynamics = DynamicsFeaturePut(duration=round(transition * 1000))
-        await bridge.async_request_call(bridge.api.lights.update(resource, action))
+        # Home Assistant invokes this callable inside its Hue error handling.
+        await bridge.async_request_call(bridge.api.lights.update, resource, action)

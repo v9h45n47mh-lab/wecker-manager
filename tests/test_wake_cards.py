@@ -276,6 +276,52 @@ class WakeCardTests(IsolatedAsyncioTestCase):
         self.assertTrue(any(a.args[1]=='set_cover_position' for a in hass.services.async_call.await_args_list))
         self.assertIn('fehlgeschlagen',self.wake.runtime(hass)['errors'][c['card_id']])
 
+    async def test_failed_action_details_survive_restart_and_clear_after_success(self):
+        import json
+        hass,entry,owner,admin,other,c,states,_=self.fixture()
+        await self.activate(hass,admin,c)
+        record=entry.options['wake_cards'][c['alarm_id']]
+        record['settings']['types']['schultag']['music']=False
+        settings,binding=deepcopy(record['settings']),deepcopy(record['binding'])
+        states['light.one'].attributes['friendly_name']='Ankleide'
+        states['cover.one'].attributes['friendly_name']='Schlafzimmer'
+        async def services(domain,service,data,**kwargs):
+            if domain=='calendar':return {'calendar.school':{'events':[]}}
+            if domain=='light' and data['entity_id']=='light.one':raise TimeoutError('https://private.example/secret-token')
+            if domain=='cover' and data['entity_id']=='cover.one':raise PermissionError('secret-permission-data')
+        hass.services.async_call.side_effect=services
+        await self.wake.tick(hass,self.now)
+        current=entry.options['wake_cards'][c['alarm_id']]
+        report=current['execution_error']
+        self.assertEqual(report['summary'],'2 Weckaktionen fehlgeschlagen.')
+        self.assertEqual(report['phase'],'wake')
+        self.assertEqual({f['entity_id']:f['code'] for f in report['failures']},{'light.one':'timeout','cover.one':'unauthorized'})
+        self.assertEqual({f['name'] for f in report['failures']},{'Ankleide','Schlafzimmer'})
+        self.assertNotIn('secret',json.dumps(report));self.assertNotIn('private.example',json.dumps(report))
+        self.assertEqual(current['settings'],settings);self.assertEqual(current['binding'],binding)
+        self.assertTrue(any(a.args[2].get('entity_id')=='light.two' for a in hass.services.async_call.await_args_list))
+        hass.data.pop(self.wake.RUNTIME)
+        data=self.wake.snapshot(hass,current)
+        self.assertEqual(data['execution_error'],report);self.assertEqual(data['error'],report['summary'])
+        data['execution_error']['failures'].clear();self.assertEqual(len(current['execution_error']['failures']),2)
+        connection=NS(user=other,send_result=Mock(),send_error=Mock())
+        await self.wake.websocket_wake_card(hass,connection,{'id':1,'action':'get','alarm_id':c['alarm_id'],'card_id':c['card_id']})
+        connection.send_result.assert_not_called();connection.send_error.assert_called_once()
+        hass.services.async_call.reset_mock();hass.services.async_call.side_effect=None
+        await self.wake.tick(hass,self.now)
+        self.assertFalse(any(a.args[0] in ('light','cover') for a in hass.services.async_call.await_args_list))
+        await self.wake.tick(hass,self.now+timedelta(days=3))
+        current=entry.options['wake_cards'][c['alarm_id']]
+        self.assertNotIn('execution_error',current);self.assertEqual(self.wake.snapshot(hass,current)['error'],'')
+
+    async def test_cancelled_execution_does_not_clear_the_previous_device_error(self):
+        hass,entry,owner,admin,_,c,_,_=self.fixture();await self.activate(hass,admin,c)
+        record=entry.options['wake_cards'][c['alarm_id']];record['settings']['types']['schultag']['music']=False
+        record['execution_error']={'summary':'Ein vorheriger Fehler','failures':[]}
+        hass.services.async_call.side_effect=asyncio.CancelledError()
+        with self.assertRaises(asyncio.CancelledError):await self.wake.execute(hass,entry,record,owner,'schultag','wake')
+        self.assertEqual(entry.options['wake_cards'][c['alarm_id']]['execution_error'],record['execution_error'])
+
     async def test_creation_checks_every_speaker_and_never_disables_existing_automations(self):
         hass,entry,owner,admin,_,c,states,_=self.fixture()
         hass.mass.auth.get_user.return_value.player_filter=['RINCON_AABBCCDDEEFF01400']
@@ -874,7 +920,7 @@ class WakeCardTests(IsolatedAsyncioTestCase):
         self.add_hue_scene(hass,states,'scene.room',('light.one','light.two','light.extra'))
         actions=[NS(target=NS(rid=id_),action=NS(on=NS(on=True),dimming=NS(brightness=brightness),color=None,color_temperature=None,dynamics=None)) for id_,brightness in [('one',35),('two',60),('extra',90)]]
         api=NS(scenes={'scene.room':NS(actions=actions)},lights=NS(update=AsyncMock()))
-        async def request(call):await call
+        async def request(task,*args,**kwargs):return await task(*args,**kwargs)
         bridge=NS(api=api,async_request_call=request);hass.config_entries.async_get_entry=Mock(return_value=NS(runtime_data=bridge));hass.registry.async_get_entity_id=lambda domain,platform,rid:'light.'+rid
         return bridge
 
@@ -895,6 +941,43 @@ class WakeCardTests(IsolatedAsyncioTestCase):
         module=types.ModuleType('aiohue.v2.models.feature');module.DynamicsFeaturePut=lambda **kwargs:NS(**kwargs)
         with patch.dict(sys.modules,{'aiohue.v2.models.feature':module}),patch.object(self.wake.asyncio,'sleep',new=AsyncMock()):await self.wake.execute(hass,entry,record,owner,'schultag','sunrise')
         self.assertEqual(bridge.api.lights.update.await_args.args[1].dynamics.duration,599000);self.assertEqual(bridge.api.lights.update.await_args.args[0],'one')
+
+    async def test_two_individual_hue_scenes_use_the_real_bridge_callable_contract(self):
+        hass,entry,owner,admin,_,c,states,_=self.fixture();bridge=self.hue_action_bridge(hass,states)
+        c['days']=[self.custom_day(display_name='Wochentag',calendar_entity='',music_mode='switchable')]
+        for light in c['lights']:light['hue_scene']='scene.room'
+        await self.wake.create_card(hass,admin,c)
+        record=entry.options['wake_cards'][c['alarm_id']];record['settings']['types']['arbeit']['sunrise_minutes']=10
+        bridge.async_request_call=AsyncMock(wraps=bridge.async_request_call)
+        original=deepcopy(bridge.api.scenes['scene.room'].actions)
+        module=types.ModuleType('aiohue.v2.models.feature');module.DynamicsFeaturePut=lambda **kwargs:NS(**kwargs)
+        for phase in ['sunrise','wake']:
+            with self.subTest(phase=phase),patch.dict(sys.modules,{'aiohue.v2.models.feature':module}),patch.object(self.wake.asyncio,'sleep',new=AsyncMock()):
+                bridge.api.lights.update.reset_mock();bridge.async_request_call.reset_mock()
+                await self.wake.execute(hass,entry,record,owner,'arbeit',phase)
+                calls=bridge.api.lights.update.await_args_list
+                self.assertEqual({call.args[0] for call in calls},{'one','two'})
+                self.assertEqual({call.args[1].dimming.brightness for call in calls},{35,60})
+                self.assertEqual(bridge.async_request_call.await_count,2)
+                self.assertTrue(all(call.args[0] is bridge.api.lights.update for call in bridge.async_request_call.await_args_list))
+                if phase=='sunrise':self.assertTrue(all(call.args[1].dynamics.duration==599000 for call in calls))
+                else:self.assertTrue(all(call.args[1].dynamics is None for call in calls))
+        self.assertEqual(bridge.api.scenes['scene.room'].actions,original)
+
+    async def test_two_hue_errors_are_reported_as_separate_sunrise_lights(self):
+        hass,entry,owner,admin,_,c,states,_=self.fixture();bridge=self.hue_action_bridge(hass,states)
+        for light in c['lights']:light['hue_scene']='scene.room'
+        await self.wake.create_card(hass,admin,c);record=entry.options['wake_cards'][c['alarm_id']]
+        record['settings']['types']['schultag']['sunrise_minutes']=10
+        bridge.api.lights.update.side_effect=RuntimeError('http://private.example/sensitive')
+        module=types.ModuleType('aiohue.v2.models.feature');module.DynamicsFeaturePut=lambda **kwargs:NS(**kwargs)
+        with patch.dict(sys.modules,{'aiohue.v2.models.feature':module}),patch.object(self.wake.asyncio,'sleep',new=AsyncMock()),self.assertRaises(self.wake.AccessError):
+            await self.wake.execute(hass,entry,record,owner,'schultag','sunrise')
+        report=entry.options['wake_cards'][c['alarm_id']]['execution_error']
+        self.assertEqual(report['phase'],'sunrise')
+        self.assertEqual({f['entity_id'] for f in report['failures']},{'light.one','light.two'})
+        self.assertTrue(all(f['action']=='Sonnenaufgang' for f in report['failures']))
+        self.assertNotIn('sensitive',str(report));self.assertNotIn('private.example',str(report))
 
     def saved_dashboard(self, hass, cards):
         loader=AsyncMock(return_value={'views':[{'sections':[{'cards':cards}]}]})

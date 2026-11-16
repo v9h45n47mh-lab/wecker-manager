@@ -1,4 +1,4 @@
-# Weckerkarte 1.11.0
+# Weckerkarte 1.13.1
 
 Die Integration führt Wecker zentral in Home Assistant aus. Dashboardkarten zeigen und ändern die zentral gespeicherten Daten. Der separat installierte Music Manager liefert die persönliche Musikauswahl.
 
@@ -107,3 +107,9 @@ Unter allen Tagestypen der Weckerkarte steht die Legende: **Blau hinterlegt: akt
 ## Sonnenaufgang am Weckernamen erkennen
 
 Bei eingeschalteter Sonnenaufgangsfunktion steht ein kleines blaues Sonnenaufgangssymbol direkt rechts neben dem Tagestypnamen. Der Hinweis am Symbol nennt die eingestellte Vorlaufzeit. Bei **Sonnenaufgang → Aus** verschwindet es nach dem Speichern. Das Symbol kennzeichnet die gespeicherte Funktion, auch wenn der Wecker selbst ausgeschaltet ist; die blaue Hintergrundfläche bleibt die Anzeige für eine Ausführung in den nächsten 24 Stunden.
+
+## Fehlgeschlagene Weckaktionen
+
+Unter **Fehlerdetails** stehen bei neuen Gerätefehlern Name und Entitätskennung des Geräts, Aktion und Fehlergrund. Der Kopf nennt Tagestyp, Zeitpunkt und **Wecken** oder **Sonnenaufgang**. Dieselben Angaben erscheinen in der Statuskarte. Die Details verwenden die aktuelle Berechtigung des Weckers und bleiben nach einem Home-Assistant-Neustart sichtbar. Ein späterer erfolgreicher Durchlauf entfernt den bisherigen Gerätefehler. Eine vollständige Neukonfiguration verwirft alte Gerätedetails.
+
+Andere Geräteaktionen werden bei einem einzelnen Ausfall weiter ausgeführt. Die Fehleranzeige wiederholt keine Schaltbefehle. Alte Sammelmeldungen können nachträglich keine Gerätenamen liefern, da diese Informationen bisher nicht gespeichert wurden. Bei einem allgemeinen Integrationsfehler helfen Gerät, Aktion, Zeitpunkt und Fehlerklasse beim Abgleich mit dem Home-Assistant-Protokoll.
