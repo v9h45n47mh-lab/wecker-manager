@@ -424,6 +424,82 @@ class WakeCardTests(IsolatedAsyncioTestCase):
         with self.assertRaises(asyncio.CancelledError):await self.wake.execute(hass,entry,record,owner,'schultag','wake')
         self.assertEqual(entry.options['wake_cards'][c['alarm_id']]['execution_error'],record['execution_error'])
 
+    async def test_media_not_found_logs_each_speaker_once_with_selection_and_original_frames(self):
+        import json
+        hass,entry,owner,admin,_,c,*_=self.fixture();await self.activate(hass,admin,c)
+        MediaNotFoundError=type('MediaNotFoundError',(Exception,),{})
+        async def missing(**kwargs):
+            try:raise ValueError('secret-cause https://private.example/?token=secret')
+            except ValueError as cause:raise MediaNotFoundError('secret-upstream https://private.example/secret') from cause
+        hass.mass.player_queues.play_media.side_effect=missing
+        logger='custom_components.wecker_manager.execution_errors'
+        with self.assertLogs(logger,level='ERROR') as logs:await self.wake.tick(hass,self.now)
+        self.assertEqual(len(logs.records),len(c['speakers']))
+        payloads=[json.loads(r.getMessage().partition(': ')[2]) for r in logs.records]
+        self.assertEqual({p['entity_id'] for p in payloads},set(c['speakers']))
+        for payload in payloads:
+            self.assertEqual(payload['alarm_id'],c['alarm_id']);self.assertEqual(payload['card_id'],c['card_id'])
+            self.assertEqual(payload['day_type'],'schultag');self.assertEqual(payload['phase'],'wake')
+            self.assertEqual(payload['code'],'media_not_found');self.assertEqual(payload['error_type'],'MediaNotFoundError')
+            self.assertIn('neu auswählen',payload['message'])
+            self.assertEqual(payload['playback'],{'source':'Apple Music','title':'Wake',
+                'media_id':'apple_music--a://track/wake','stage':'Weckmusik in Music Assistant starten'})
+            self.assertEqual([t['error_type'] for t in payload['trace']],['MediaNotFoundError','ValueError'])
+            self.assertTrue(any('(missing)' in frame for frame in payload['trace'][0]['frames']))
+        output=' '.join(logs.output);self.assertNotIn('secret',output);self.assertNotIn('private.example',output)
+        record=entry.options['wake_cards'][c['alarm_id']]
+        self.assertTrue(all(f['code']=='media_not_found' for f in record['execution_error']['failures']))
+        self.assertNotIn('secret',json.dumps(record['execution_error']))
+        self.assertTrue(any(a.args[:2]==('cover','set_cover_position') for a in hass.services.async_call.await_args_list))
+        self.assertIsNone(self.wake.snapshot(hass,record,owner)['execution_error'])
+        with self.assertNoLogs(logger,level='ERROR'):await self.wake.tick(hass,self.now)
+        self.assertEqual(hass.mass.player_queues.play_media.await_count,2)
+
+    async def test_radio_and_resume_failures_record_the_actual_start_path(self):
+        for radio in [True,False]:
+            with self.subTest(radio=radio):
+                hass,entry,owner,admin,_,c,*_=self.fixture();await self.activate(hass,admin,c)
+                choices=hass.user_stores[owner.id].data['music_manager_alarm_music']
+                if radio:
+                    choices[c['alarm_id']]={'kind':'radio','uri':'media-source://radio_browser/swr3',
+                        'media_content_id':'media-source://radio_browser/swr3','media_type':'radio','title':'SWR3'}
+                else:choices.pop(c['alarm_id'])
+                async def services(domain,service,data,**kwargs):
+                    if domain=='calendar':return {'calendar.school':{'events':[]}}
+                    if service==('play_media' if radio else 'media_play'):raise RuntimeError('secret-stream-token')
+                hass.services.async_call.side_effect=services
+                with self.assertLogs('custom_components.wecker_manager.execution_errors',level='ERROR') as logs:
+                    await self.wake.tick(hass,self.now)
+                failures=entry.options['wake_cards'][c['alarm_id']]['execution_error']['failures']
+                self.assertEqual(len(failures),2)
+                for failure in failures:
+                    info=failure['playback'];self.assertEqual(info['stage'],'Radiosender starten' if radio else 'Letzte Wiedergabe fortsetzen')
+                    self.assertEqual(info['source'],'Radio' if radio else 'Letzte Wiedergabe')
+                    if radio:self.assertEqual(info['title'],'SWR3');self.assertEqual(info['media_id'],'media-source://radio_browser/swr3')
+                    else:self.assertNotIn('media_id',info)
+                self.assertNotIn('secret',str(logs.output))
+
+    async def test_volume_failure_is_distinguished_from_a_media_start_failure(self):
+        hass,entry,_,admin,_,c,*_=self.fixture();await self.activate(hass,admin,c)
+        async def services(domain,service,data,**kwargs):
+            if domain=='calendar':return {'calendar.school':{'events':[]}}
+            if service=='volume_set':raise TimeoutError('secret-provider-body')
+        hass.services.async_call.side_effect=services
+        with self.assertLogs('custom_components.wecker_manager.execution_errors',level='ERROR') as logs:await self.wake.tick(hass,self.now)
+        failures=entry.options['wake_cards'][c['alarm_id']]['execution_error']['failures']
+        self.assertTrue(all(f['code']=='timeout' and f['playback']['stage']=='Lautstärke einstellen' for f in failures))
+        self.assertEqual(len(logs.records),2);hass.mass.player_queues.play_media.assert_not_awaited()
+
+    async def test_invalid_media_identifiers_never_enter_diagnostics_or_logs(self):
+        hass,entry,owner,admin,_,c,*_=self.fixture();await self.activate(hass,admin,c)
+        choices=hass.user_stores[owner.id].data['music_manager_alarm_music']
+        choices[c['alarm_id']]['uri']='apple_music--a://track/wake?token=secret'
+        with self.assertLogs('custom_components.wecker_manager.execution_errors',level='ERROR') as logs:await self.wake.tick(hass,self.now)
+        report=entry.options['wake_cards'][c['alarm_id']]['execution_error']
+        self.assertNotIn('secret',str(report));self.assertNotIn('secret',str(logs.output))
+        self.assertTrue(all('media_id' not in f['playback'] for f in report['failures']))
+        hass.mass.player_queues.play_media.assert_not_awaited()
+
     async def test_creation_checks_every_speaker_and_never_disables_existing_automations(self):
         hass,entry,owner,admin,_,c,states,_=self.fixture()
         hass.mass.auth.get_user.return_value.player_filter=['RINCON_AABBCCDDEEFF01400']

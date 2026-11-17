@@ -1,3 +1,12 @@
+# Wecker 1.14.1
+
+- **Fehlgeschlagene Geräteaktionen werden jetzt im HA-Protokoll erfasst.** Bisher wurden abgefangene Fehler nur in der Karte gespeichert; der Hinweis auf zusätzliche Protokolldetails führte deshalb ins Leere. Jeder neue Fehler enthält dort Wecker-/Kartenkennung, Tagestyp, Phase, Gerät, Aktion und Fehlerklasse sowie die Aufrufstellen. Ungefilterte Fehlermeldungen und Zugangsdaten externer Dienste werden nicht protokolliert.
+- **MediaNotFoundError erhält einen passenden Hinweis:** Music Assistant hat die angeforderte Weckmusik nicht gefunden. Die Karte empfiehlt, die Musik für diesen Wecker neu auszuwählen und zu testen. Auch bereits gespeicherte Meldungen dieser Fehlerklasse zeigen den korrigierten Hinweis.
+- Neue Musikfehler zeigen Quelle, gewählten Titel und den fehlgeschlagenen Schritt, etwa Lautstärke oder Musikstart. Das Protokoll enthält zusätzlich die zuvor geprüfte Medienkennung. Ältere Fehler erhalten diese damals nicht erfassten Angaben nicht nachträglich.
+- Fehlerdetails und Quittierung bleiben ausschließlich für HA-Admins sichtbar. Ausführung, Gerätebindungen, Weckzeiten und Ausschalt-Timer bleiben erhalten. Die Änderung wiederholt keine Gerätebefehle und behebt keinen möglicherweise fehlenden Eintrag im Musikkatalog.
+
+**Update:** In HACS aktualisieren, Home Assistant neu starten und Browser/App vollständig neu laden. Neue Fehler erscheinen unter **Einstellungen → System → Protokolle**, Logger `custom_components.wecker_manager.execution_errors`.
+
 # Wecker 1.14.0
 
 - **Gespeicherte Fehlermeldungen sind ausschließlich für Home-Assistant-Administratoren sichtbar.** Das gilt für die Weckerkarte, die Statuskarte und die Backend-Schnittstelle. Delegierte Wecker-Verwaltungsrechte geben keinen Zugriff auf Diagnosen.

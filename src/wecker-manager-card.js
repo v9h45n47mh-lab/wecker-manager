@@ -15,6 +15,7 @@ import {UI_CSS, icon, navigation, row, section, button, iconButton, filterButton
 
 const CARD_VERSION='__WECKER_VERSION__';
 const diagnosticsAdmin = user => Boolean(user&&(user.is_admin||user.is_owner));
+const failureDescription = item => [item.action,item.playback?.source,item.playback?.title,item.playback?.stage,item.error_type==='MediaNotFoundError'?'Music Assistant hat die gewählte Weckmusik nicht gefunden. Bitte die Weckmusik in dieser Weckerkarte neu auswählen und testen.':item.message,item.error_type,item.entity_id].filter(Boolean).join(' · ');
 
 const executionError = (data,timeZone,admin=false,busy=false) => {
   if(!admin||!data?.error)return '';
@@ -23,7 +24,7 @@ const executionError = (data,timeZone,admin=false,busy=false) => {
   if(!report||report.summary!==data.error||!Array.isArray(report.failures))return notice(data.error,{error:true})+acknowledge;
   const when=new Date(report.at);
   const context=[report.day_name,report.phase==='sunrise'?'Sonnenaufgang':'Wecken',Number.isFinite(when.getTime())?when.toLocaleString('de-DE',{dateStyle:'short',timeStyle:'short',...(timeZone?{timeZone}:{})}):''].filter(Boolean).join(' · ');
-  return notice(data.error,{error:true})+section({id:'wake-error-details',title:'Fehlerdetails',expanded:true,content:notice(context)+report.failures.map(item=>row({title:item.name||item.entity_id,description:[item.action,item.message,item.code==='device_error'?item.error_type:'',item.entity_id].filter(Boolean).join(' · ')})).join('')})+acknowledge;
+  return notice(data.error,{error:true})+section({id:'wake-error-details',title:'Fehlerdetails',expanded:true,content:notice(context)+report.failures.map(item=>row({title:item.name||item.entity_id,description:failureDescription(item)})).join('')})+acknowledge;
 };
 
 const defaultDays = (calendar='') => [
