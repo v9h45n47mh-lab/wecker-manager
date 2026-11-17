@@ -2,13 +2,15 @@
 
 ![Wecker](custom_components/wecker_manager/brand/icon.png)
 
-Home-Assistant-Integration mit vollständig bearbeitbaren Weckerkarten und gemeinsamen Tagestypen. Version **1.14.0**, unverändertes **HA UI Kit 1.4.1**.
+Home-Assistant-Integration mit vollständig bearbeitbaren Weckerkarten und gemeinsamen Tagestypen. Version **1.14.1**, unverändertes **HA UI Kit 1.4.1**.
 
 Eigene Wecker verwenden ein gemeinsames Recht **Eigenen Wecker verwalten** für Ansicht und Änderungen. Eigentümer-, Geräte- und Kontoprüfungen bleiben zusätzlich wirksam; Verwaltung fremder Wecker bleibt separat.
 
 Eine neue Uhrzeit plant auch einen heute bereits ausgeführten Wecker erneut ein. Die 24-Stunden-Markierung sowie Light- und Shutter-Manager-Zeitprogramme zeigen den neuen Termin.
 
 Fehlgeschlagene Aktionen nennen Gerät, Aktion und Fehlergrund unter **Fehlerdetails**. Meldungen und Details sind ausschließlich für Home-Assistant-Administratoren sichtbar, auch in der Statuskarte. Mit **Meldung quittieren** entfernen Admins die gespeicherte Meldung dauerhaft; Weckzeiten und Geräte werden dadurch nicht verändert.
+
+Neue Gerätefehler erscheinen auch im HA-Protokoll. Bei Musikfehlern zeigen die Details Quelle, Titel und den fehlgeschlagenen Schritt. `MediaNotFoundError` bedeutet, dass Music Assistant die angeforderte Weckmusik nicht gefunden hat; die Musik in dieser Weckerkarte neu auswählen und testen.
 
 ## Funktionen
 

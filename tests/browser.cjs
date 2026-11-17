@@ -73,7 +73,7 @@ let browser;
  await action('settings').click();const settings=card().locator('#wake-settings-dialog');
  const slider=settings.locator('#wake-volume');assert.equal(await slider.getAttribute('min'),'5');assert.equal(await slider.getAttribute('max'),'15');
  assert.equal(await settings.locator('select').count(),4);assert(await settings.locator('#wake-sunrise-setting').isVisible());assert.equal(await settings.locator('[data-ui-multi]').count(),0);
- assert(await settings.evaluate(el=>el.getBoundingClientRect().width<=480));assert.match(await settings.locator('.version-info').innerText(),/Wecker 1\.14\.0/);
+ assert(await settings.evaluate(el=>el.getBoundingClientRect().width<=480));assert.match(await settings.locator('.version-info').innerText(),/Wecker 1\.14\.1/);
  assert(await settings.locator('#wake-settings').evaluate(el=>el.lastElementChild.classList.contains('version-info')));
  await slider.press('End');await settings.locator('#wake-sunrise-setting').selectOption('15');
  await settings.locator('[data-action="preset-remove"][data-kind="schultag"]').first().click();
@@ -307,5 +307,11 @@ let browser;
  for(const element of [card(),privateStatus]){assert.equal(await element.getByText('Fehlerdetails',{exact:true}).count(),0);assert.equal(await element.getByRole('button',{name:'Meldung quittieren',exact:true}).count(),0);assert.equal(await element.getByText('2 Weckaktionen fehlgeschlagen.',{exact:true}).count(),0);}
  assert.equal(await action('time').count(),3,'Nonadmins retain their alarm controls');
  for(const width of [1100,390,320])for(const dark of [false,true]){await page.setViewportSize({width,height:1000});await page.evaluate(d=>document.body.classList.toggle('dark',d),dark);assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));await card().screenshot({path:path.join(screens,`diagnostics-hidden-${width}-${dark?'dark':'light'}.png`)});}
+ await page.goto(url+'?real_music=1&execution_failure=1&media_failure=1');await card().getByText('Fehlerdetails',{exact:true}).waitFor();
+ assert(await card().getByText('Music Assistant hat die gewählte Weckmusik nicht gefunden.',{exact:false}).isVisible());assert(await card().getByText('Apple Music · Wecktitel · Weckmusik in Music Assistant starten',{exact:false}).isVisible());
+ assert.equal(await card().locator('#wake-status .setting-row').count(),1);assert.equal(await card().getByText('Home-Assistant-Protokoll prüfen.',{exact:false}).count(),0);
+ await page.evaluate(()=>{const el=document.createElement('wecker-manager-status-card');el.id='media-error-status';el.setConfig({...wakeDemo.config,name:'Maximilian'});el.hass=wakeDemo.makeHass();document.body.append(el);});
+ const mediaStatus=page.locator('#media-error-status');await mediaStatus.getByText('MediaNotFoundError',{exact:false}).waitFor();
+ for(const width of [1100,390,320])for(const dark of [false,true]){await page.setViewportSize({width,height:1100});await page.evaluate(d=>document.body.classList.toggle('dark',d),dark);assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));for(const [element,name] of [[card(),'alarm'],[mediaStatus,'status']]){assert(await element.evaluate(el=>el.scrollWidth<=el.clientWidth));await element.screenshot({path:path.join(screens,`media-not-found-${name}-${width}-${dark?'dark':'light'}.png`)});}}
  assert.deepEqual(errors,[]);console.log('PASS universal wake card: wheels, settings, fixed multi-device editor, account isolation, live sync, responsive theme/layout screenshots, guided day policies, calendar polarity, per-type confirmation and single-device dialogs');
 })().catch(error=>{console.error(error);process.exitCode=1;}).finally(async()=>{await browser?.close();server.close();});

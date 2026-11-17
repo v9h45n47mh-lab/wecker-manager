@@ -1,4 +1,6 @@
-# UI-Kit-Prüfung für Wecker 1.14.0
+# UI-Kit-Prüfung für Wecker 1.14.1
+
+Musikquelle, Titel, Ausführungsschritt und die Erklärung zu nicht gefundener Musik verwenden dieselben unveränderten UI-Kit-Gerätezeilen. Die Browserprüfung prüft diesen Fall in Wecker- und Statuskarte bei 1100, 390 und 320 Pixeln in beiden Themes, einschließlich langer Entitätskennungen.
 
 **Meldung quittieren** verwendet den gemeinsamen UI-Kit-Button und das bestehende Symbol `success`. Die Aktion steht unter den Fehlerdetails und passt auch auf schmale Mobilgeräte. Die Browserprüfung deckt Wecker- und Statuskarte bei 1100, 390 und 320 Pixeln in hellen und dunklen Themes ab. Sie prüft außerdem Live-Aktualisierung nach dem Quittieren sowie ausgeblendete Diagnosen für Nicht-Admins bei erhaltenen Wecker-Bedienfeldern.
 

@@ -1,4 +1,4 @@
-# Weckerkarte 1.14.0
+# Weckerkarte 1.14.1
 
 Die Integration führt Wecker zentral in Home Assistant aus. Dashboardkarten zeigen und ändern die zentral gespeicherten Daten. Der separat installierte Music Manager liefert die persönliche Musikauswahl.
 
@@ -117,6 +117,10 @@ Unter der Meldung steht für Admins **Meldung quittieren**. Der Button entfernt 
 Ohne Quittierung bleibt ein Gerätefehler über einen Home-Assistant-Neustart hinweg erhalten. Ein späterer erfolgreicher Durchlauf entfernt den bisherigen Gerätefehler. Eine vollständige Neukonfiguration verwirft alte Gerätedetails. Eingabe- und Berechtigungshinweise bei der normalen Bedienung bleiben für den jeweiligen Benutzer sichtbar.
 
 Andere Geräteaktionen werden bei einem einzelnen Ausfall weiter ausgeführt. Die Fehleranzeige wiederholt keine Schaltbefehle. Alte Sammelmeldungen können nachträglich keine Gerätenamen liefern, da diese Informationen bisher nicht gespeichert wurden. Bei einem allgemeinen Integrationsfehler helfen Gerät, Aktion, Zeitpunkt und Fehlerklasse beim Abgleich mit dem Home-Assistant-Protokoll.
+
+Seit **1.14.1** schreibt der Wecker jede neu fehlgeschlagene Geräteaktion selbst als Fehler in **Einstellungen → System → Protokolle**. Der Logger heißt `custom_components.wecker_manager.execution_errors`. Er nennt Wecker-/Kartenkennung, Tagestyp, Phase, Gerät, Aktion, Fehlerklasse und die Aufrufstellen. Externe Fehlermeldungen werden nicht ungefiltert übernommen. Erledigte Termine werden durch die Protokollierung nicht erneut ausgeführt. Vergangene Fehler lassen sich nicht rückwirkend ins Protokoll übertragen.
+
+Bei neuen Musikfehlern stehen zusätzlich Quelle, Titel und der fehlgeschlagene Schritt in den Admin-Details, etwa **Lautstärke einstellen** oder **Weckmusik in Music Assistant starten**. Das Protokoll nennt auch die zuvor geprüfte Medienkennung. **MediaNotFoundError** weist auf einen von Music Assistant nicht gefundenen Medieninhalt hin; es belegt keine ausgefallene Box. Wähle die Weckmusik in der betroffenen Weckerkarte erneut aus und teste sie. Die Ursache eines fehlenden Katalogeintrags kann dieses Update allein nicht beheben. Bereits gespeicherte Fehler dieser Klasse erhalten den korrigierten Hinweis; damals nicht erfasste Quellen- und Titelangaben werden nicht ergänzt.
 
 ## Weckzeit nach einer Ausführung verschieben
 

@@ -64,6 +64,21 @@ test('generic and cleared execution errors do not retain stale device details',a
  e.remoteChange(record=>{record.error='';record.execution_error=null;});await flush();assert.equal(e.card.shadowRoot.querySelector('#wake-status').textContent,'');e.card.remove();
 });
 
+test('media failures show selection and failed step to admins on both cards and escape metadata',async()=>{
+ for(const status of [false,true]){
+  const e=fixture({status,admin:true});await flush();const report=executionFailure();report.phase='wake';report.summary='1 Weckaktion fehlgeschlagen.';
+  report.failures=[{name:'Maximilian',entity_id:'media_player.one',action:'Weckmusik starten',code:'media_not_found',
+   message:'Music Assistant hat die gewählte Weckmusik nicht gefunden. Bitte die Weckmusik in dieser Weckerkarte neu auswählen und testen.',error_type:'MediaNotFoundError',
+   playback:{source:'Apple Music',title:'<script>Wake</script>',stage:'Weckmusik in Music Assistant starten',media_id:'apple_music--a://track/wake'}}];
+  e.remoteChange(record=>{record.error=report.summary;record.execution_error=report;record.error_token='a'.repeat(64);});await flush();
+  const host=e.card.shadowRoot.querySelector('#wake-status,#status-error');assert.match(host.textContent,/Apple Music/);assert.match(host.textContent,/<script>Wake<\/script>/);assert.equal(host.querySelector('script'),null);
+  assert.match(host.textContent,/Weckmusik in Music Assistant starten/);assert.match(host.textContent,/nicht gefunden/);assert.match(host.textContent,/MediaNotFoundError/);assert(!host.textContent.includes('Home-Assistant-Protokoll prüfen'));
+  e.remoteChange(record=>{delete record.execution_error.failures[0].playback;record.execution_error.failures[0].code='device_error';record.execution_error.failures[0].message='Die Geräteintegration hat den Befehl nicht ausgeführt. Details im Home-Assistant-Protokoll prüfen.';});await flush();
+  assert.match(host.textContent,/nicht gefunden/);assert(!host.textContent.includes('Home-Assistant-Protokoll prüfen'));
+  e.card._hass.user.is_admin=false;e.card.hass=e.card._hass;await flush();assert(!host.textContent.includes('Wake'));assert(!host.textContent.includes('MediaNotFoundError'));e.card.remove();
+ }
+});
+
 test('admins acknowledge saved failures on both card types without changing alarm settings',async()=>{
  for(const status of [false,true]){
   const e=fixture({status,admin:true});await flush();const report=executionFailure();

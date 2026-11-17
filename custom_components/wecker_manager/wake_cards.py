@@ -27,7 +27,7 @@ from .const import DOMAIN, MUSIC_DOMAIN, VERSION
 from .day_types import legacy_days, day_definitions, validate_days, settings_for_days, calendar_mode
 from . import shared_days
 from . import hue_scenes
-from .execution_errors import action_failure, failure_report
+from .execution_errors import action_failure, failure_report, log_action_failure
 from ..music_manager.helpers import music_assistant_client
 
 KEY = "wake_cards"
@@ -1076,7 +1076,12 @@ def due_phases(hass, record, when, errors=None):
     return result
 
 
-async def play_speaker(hass, entry, record, owner, source):
+async def play_speaker(hass, entry, record, owner, source, diagnostics=None):
+    def stage(label, **fields):
+        if diagnostics is not None:
+            diagnostics.update(stage=label, **fields)
+
+    stage("Musikauswahl laden")
     binding = record["binding"]
     allowed_entity(hass, owner, None, source, "media_player")
     from homeassistant.components.frontend.storage import async_user_store
@@ -1088,11 +1093,17 @@ async def play_speaker(hass, entry, record, owner, source):
     raw = choices.get(binding["alarm_id"]) if isinstance(choices, dict) else None
     radio = None
     if isinstance(raw, dict) and raw.get("kind") == "radio":
+        stage("Radiosender prüfen", source="Radio")
         uri, title = raw.get("uri"), raw.get("title")
         if (not isinstance(uri, str) or not re.fullmatch(r"media-source://radio_browser/[a-zA-Z0-9_-]{1,128}", uri)
             or raw.get("media_content_id", uri) != uri or not isinstance(title, str) or not title.strip()):
             raise AccessError("invalid_favorite", "Bitte den gespeicherten Radiosender neu auswählen.")
         radio = {"media_content_id": uri, "media_content_type": "music", "extra": {"title": title[:500]}}
+        stage("Radiosender prüfen", title=title[:160], media_id=uri)
+    elif selected is None:
+        stage("Letzte Wiedergabe prüfen", source="Letzte Wiedergabe")
+    else:
+        stage("Musikkonto und Box prüfen", source="Apple Music")
     context = Context(user_id=owner.id)
     mass = account = target = None
     policy = playback_policy(record)
@@ -1103,6 +1114,7 @@ async def play_speaker(hass, entry, record, owner, source):
         uri = validate_uri(selected.get("uri"), account["provider_id"])
         if selected.get("media_type") not in ("track", "album", "playlist") or not uri.startswith(f"{account['provider_id']}://{selected['media_type']}/"):
             raise AccessError("invalid_favorite", "Bitte die gespeicherte Weckmusik neu auswählen.")
+        stage("Musikbox prüfen", title=str(selected.get("title", ""))[:160], media_id=uri)
         player = mass.players.get(target.unique_id)
         if not player or not value(player, "available", False):
             raise AccessError("player_unavailable", "Eine Musikbox ist in Music Assistant nicht erreichbar.")
@@ -1126,15 +1138,21 @@ async def play_speaker(hass, entry, record, owner, source):
     attempted = False
     try:
         if mass:
+            stage("Titelwiederholung einstellen")
             await queue_repeat(mass, target.unique_id, "one" if policy["mode"] == "duration" else "off")
+        stage("Lautstärke einstellen")
         await hass.services.async_call("media_player", "volume_set", {"entity_id": source, "volume_level": record["settings"]["volume"] / 100}, blocking=True, context=context)
         attempted = True
         if radio is not None:
+            stage("Radiosender starten")
             await hass.services.async_call("media_player", "play_media", {"entity_id": source, **radio}, blocking=True, context=context)
         elif selected is None:
+            stage("Letzte Wiedergabe fortsetzen")
             await hass.services.async_call("media_player", "media_play", {"entity_id": source}, blocking=True, context=context)
         else:
+            stage("Weckmusik in Music Assistant starten")
             await mass.player_queues.play_media(queue_id=target.unique_id, media=uri, option="replace", radio_mode=False, user=account["ma_user_id"])
+            stage("Titelwiederholung nach dem Start einstellen")
             await queue_repeat(mass, target.unique_id, "one" if policy["mode"] == "duration" else "off")
     except Exception:
         # Undo a partial start. Keep the deadline only if cleanup also fails.
@@ -1170,8 +1188,8 @@ async def execute(hass, entry, record, owner, kind, phase):
     context = Context(user_id=owner.id)
     tasks, targets = [], []
 
-    def add_action(entity_id, action, task):
-        targets.append((entity_id, action))
+    def add_action(entity_id, action, task, diagnostics=None):
+        targets.append((entity_id, action, diagnostics))
         tasks.append(task)
 
     scene_id = binding.get("hue_scene", "")
@@ -1236,13 +1254,18 @@ async def execute(hass, entry, record, owner, kind, phase):
             add_action(item["entity_id"], "Rollladen fahren", cover_action(item))
         if record["settings"]["types"][kind]["music"]:
             for source in binding["speakers"]:
-                add_action(source, "Weckmusik starten", play_speaker(hass, entry, record, owner, source))
+                diagnostics = {}
+                add_action(source, "Weckmusik starten", play_speaker(hass, entry, record, owner, source, diagnostics), diagnostics)
     results = await asyncio.gather(*tasks, return_exceptions=True)
     for result in results:
         if isinstance(result, asyncio.CancelledError):
             raise result
-    failures = [action_failure(hass, entity_id, action, result)
-                for (entity_id, action), result in zip(targets, results) if isinstance(result, Exception)]
+    failures = []
+    for (entity_id, action, diagnostics), result in zip(targets, results):
+        if isinstance(result, Exception):
+            failure = action_failure(hass, entity_id, action, result, diagnostics)
+            failures.append(failure)
+            log_action_failure(record, kind, phase, failure, result)
     report = failure_report(record, kind, phase, failures) if failures else None
     async with runtime(hass)["lock"]:
         current = entry.options.get(KEY, {}).get(binding["alarm_id"])
