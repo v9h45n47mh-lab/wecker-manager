@@ -1,4 +1,4 @@
-/* Wecker 1.14.0 | MIT | HA UI Kit 1.4.1 bundled unchanged */
+/* Wecker 1.14.1 | MIT | HA UI Kit 1.4.1 bundled unchanged */
 const WeckerManagerUI=(()=>{
 /* HA UI Kit 1.4.1 | MIT | Source priority: Shutter, Light, Essensplaner, Haushalt, Spuelmaschine, Access */
 const UI_VERSION = "1.4.1";
@@ -590,8 +590,9 @@ function releaseFamilyAccess(host){host._familyAccessUnsub?.();host._familyAcces
 
 const {UI_CSS, icon, navigation, row, section, button, iconButton, filterButton, toggle, dialog, confirmDialog, field, selectField, rangeControl, multiSelect, whiteTemperatureControl, colourPicker, weekdayPicker, notice, loadingState, versionInfo, bindUI, escapeHtml} = WeckerManagerUI;
 
-const CARD_VERSION='1.14.0';
+const CARD_VERSION='1.14.1';
 const diagnosticsAdmin = user => Boolean(user&&(user.is_admin||user.is_owner));
+const failureDescription = item => [item.action,item.playback?.source,item.playback?.title,item.playback?.stage,item.error_type==='MediaNotFoundError'?'Music Assistant hat die gewählte Weckmusik nicht gefunden. Bitte die Weckmusik in dieser Weckerkarte neu auswählen und testen.':item.message,item.error_type,item.entity_id].filter(Boolean).join(' · ');
 
 const executionError = (data,timeZone,admin=false,busy=false) => {
   if(!admin||!data?.error)return '';
@@ -600,7 +601,7 @@ const executionError = (data,timeZone,admin=false,busy=false) => {
   if(!report||report.summary!==data.error||!Array.isArray(report.failures))return notice(data.error,{error:true})+acknowledge;
   const when=new Date(report.at);
   const context=[report.day_name,report.phase==='sunrise'?'Sonnenaufgang':'Wecken',Number.isFinite(when.getTime())?when.toLocaleString('de-DE',{dateStyle:'short',timeStyle:'short',...(timeZone?{timeZone}:{})}):''].filter(Boolean).join(' · ');
-  return notice(data.error,{error:true})+section({id:'wake-error-details',title:'Fehlerdetails',expanded:true,content:notice(context)+report.failures.map(item=>row({title:item.name||item.entity_id,description:[item.action,item.message,item.code==='device_error'?item.error_type:'',item.entity_id].filter(Boolean).join(' · ')})).join('')})+acknowledge;
+  return notice(data.error,{error:true})+section({id:'wake-error-details',title:'Fehlerdetails',expanded:true,content:notice(context)+report.failures.map(item=>row({title:item.name||item.entity_id,description:failureDescription(item)})).join('')})+acknowledge;
 };
 
 const defaultDays = (calendar='') => [

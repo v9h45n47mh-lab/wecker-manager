@@ -5,7 +5,7 @@ body{margin:0;padding:20px 12px;background:#f3f5f7;--primary-color:#03a9f4;--pri
 body.dark{background:#10151c;--primary-text-color:#f2f4f6;--secondary-text-color:#b2bcc8;--card-background-color:#1b222c;--ha-card-background:#1b222c;--secondary-background-color:#252f3b;--divider-color:#394451}
 main{max-width:540px;margin:auto}#editor{margin-top:20px}button#theme{display:block;margin:0 auto 12px;padding:8px 16px}
 </style><button id="theme">Hell / Dunkel</button><main><div id="card"></div><div id="editor"></div></main>
-<script type="module">/* Wecker 1.14.0 | MIT | HA UI Kit 1.4.1 bundled unchanged */
+<script type="module">/* Wecker 1.14.1 | MIT | HA UI Kit 1.4.1 bundled unchanged */
 const WeckerManagerUI=(()=>{
 /* HA UI Kit 1.4.1 | MIT | Source priority: Shutter, Light, Essensplaner, Haushalt, Spuelmaschine, Access */
 const UI_VERSION = "1.4.1";
@@ -597,8 +597,9 @@ function releaseFamilyAccess(host){host._familyAccessUnsub?.();host._familyAcces
 
 const {UI_CSS, icon, navigation, row, section, button, iconButton, filterButton, toggle, dialog, confirmDialog, field, selectField, rangeControl, multiSelect, whiteTemperatureControl, colourPicker, weekdayPicker, notice, loadingState, versionInfo, bindUI, escapeHtml} = WeckerManagerUI;
 
-const CARD_VERSION='1.14.0';
+const CARD_VERSION='1.14.1';
 const diagnosticsAdmin = user => Boolean(user&&(user.is_admin||user.is_owner));
+const failureDescription = item => [item.action,item.playback?.source,item.playback?.title,item.playback?.stage,item.error_type==='MediaNotFoundError'?'Music Assistant hat die gewählte Weckmusik nicht gefunden. Bitte die Weckmusik in dieser Weckerkarte neu auswählen und testen.':item.message,item.error_type,item.entity_id].filter(Boolean).join(' · ');
 
 const executionError = (data,timeZone,admin=false,busy=false) => {
   if(!admin||!data?.error)return '';
@@ -607,7 +608,7 @@ const executionError = (data,timeZone,admin=false,busy=false) => {
   if(!report||report.summary!==data.error||!Array.isArray(report.failures))return notice(data.error,{error:true})+acknowledge;
   const when=new Date(report.at);
   const context=[report.day_name,report.phase==='sunrise'?'Sonnenaufgang':'Wecken',Number.isFinite(when.getTime())?when.toLocaleString('de-DE',{dateStyle:'short',timeStyle:'short',...(timeZone?{timeZone}:{})}):''].filter(Boolean).join(' · ');
-  return notice(data.error,{error:true})+section({id:'wake-error-details',title:'Fehlerdetails',expanded:true,content:notice(context)+report.failures.map(item=>row({title:item.name||item.entity_id,description:[item.action,item.message,item.code==='device_error'?item.error_type:'',item.entity_id].filter(Boolean).join(' · ')})).join('')})+acknowledge;
+  return notice(data.error,{error:true})+section({id:'wake-error-details',title:'Fehlerdetails',expanded:true,content:notice(context)+report.failures.map(item=>row({title:item.name||item.entity_id,description:failureDescription(item)})).join('')})+acknowledge;
 };
 
 const defaultDays = (calendar='') => [
@@ -1360,10 +1361,15 @@ const records=new Map(),dashboardRefs=new Set([config.alarm_id+'|'+config.card_i
 const binding=({type,name,days,header,...rest})=>rest;
 const schoolTemplate={id:'day_shared_school',name:'Schultag',icon:'mdi:school',weekdays:[0,1,2,3,4],calendar_entity:'calendar.school',calendar_mode:'no_event',music_mode:'always',confirm_disable:true,revision:1,uses:1,used_by:[{name:'Maximilians Wecker',owner:'Maximilian'}]};catalog.shared_days=[schoolTemplate];
 const initialDays=[{...schoolTemplate,id:'schultag',template_id:schoolTemplate.id,template_revision:1,music_mode:'always',confirm_disable:true},{id:'wochenende',name:'Wochenende',icon:'mdi:weather-sunny',weekdays:[5,6],music_mode:'switchable',confirm_disable:false,calendar_entity:'',calendar_mode:'event'},{id:'ferien',name:'Ferien / schulfrei',icon:'mdi:palm-tree',weekdays:[0,1,2,3,4],music_mode:'switchable',confirm_disable:false,calendar_entity:'calendar.school',calendar_mode:'event'}].map(({revision,uses,...day})=>day);
-records.set(config.alarm_id,{exists:true,binding:binding(config),name:config.name,version:'1.14.0',days:initialDays,settings:clone(settings),revision:1});
+records.set(config.alarm_id,{exists:true,binding:binding(config),name:config.name,version:'1.14.1',days:initialDays,settings:clone(settings),revision:1});
 if(new URLSearchParams(location.search).has('execution_failure')){
  const execution_error={at:'2026-11-16T05:20:00+00:00',day_name:'Wochentag',phase:'sunrise',summary:'2 Weckaktionen fehlgeschlagen.',failures:[{name:'Ankleide',entity_id:'light.dress',action:'Sonnenaufgang',code:'timeout',message:'Das Gerät hat nicht rechtzeitig geantwortet.',error_type:'TimeoutError'},{name:'Bett',entity_id:'light.max',action:'Sonnenaufgang',code:'device_error',message:'Die Geräteintegration hat den Befehl nicht ausgeführt. Details im Home-Assistant-Protokoll prüfen.',error_type:'HomeAssistantError'}]};
  Object.assign(records.get(config.alarm_id),{error:execution_error.summary,execution_error,error_token:'a'.repeat(64)});
+ if(new URLSearchParams(location.search).has('media_failure'))Object.assign(records.get(config.alarm_id),{error:'1 Weckaktion fehlgeschlagen.',execution_error:{
+  at:'2026-11-17T06:12:00+00:00',day_name:'Schultag',phase:'wake',summary:'1 Weckaktion fehlgeschlagen.',
+  failures:[{name:'Maximilian',entity_id:'media_player.maximilian_sonos_maximilian_sonos',action:'Weckmusik starten',code:'media_not_found',
+   message:'Music Assistant hat die gewählte Weckmusik nicht gefunden. Bitte die Weckmusik in dieser Weckerkarte neu auswählen und testen.',error_type:'MediaNotFoundError',
+   playback:{source:'Apple Music',title:'Wecktitel',stage:'Weckmusik in Music Assistant starten',media_id:'apple_music--max://track/wake'}}]}});
 }
 const forecast={schultag:true,wochenende:false,ferien:false};
 const policies=day=>({music_mode:day.music_mode||'switchable',confirm_disable:day.confirm_disable??false});
@@ -1417,7 +1423,7 @@ const makeHass=()=>({user:{id:user,is_admin:user==='admin'},connection,states:{}
  if(msg.action==='upcoming')return {types:Object.fromEntries(Object.entries(record.settings.types).map(([id,item])=>[id,{active:item.enabled&&Boolean(forecast[id]),label:'14.11. 06:00'}]))};
  if(msg.action==='get')return record&&record.binding.card_id===msg.card_id?clone(record):{exists:false,can_create:user==='admin',replaces_card:!!record};
  if(msg.action==='acknowledge_error'){if(user!=='admin')throw {code:'unauthorized',message:'Nur Administratoren'};if(fail)throw {code:'save_failed',message:'Speichern fehlgeschlagen'};if(record.error&&record.error_token!==msg.error_token)throw {code:'conflict',message:'Die Meldung wurde inzwischen aktualisiert.'};record.error='';record.execution_error=null;record.error_token=null;notify(msg.alarm_id);return clone(record);}
- if(msg.action==='create'){if(record?.binding.card_id===msg.config.card_id&&JSON.stringify(record.binding)!==JSON.stringify(binding(msg.config)))throw Error('Geräte sind festgelegt.');const next={exists:true,binding:binding(msg.config),name:msg.config.name,version:'1.14.0',days:clone(msg.config.days),settings:{...clone(settings),types:Object.fromEntries(msg.config.days.map(d=>[d.id,{...(clone(settings.types[d.id]||{time:'06:00',music:false,presets:[]})),enabled:false,music:d.music_mode==='always',calendar_mode:d.calendar_mode,sunrise_minutes:0}]))},revision:1};records.set(msg.config.alarm_id,next);dashboardRefs.add(msg.config.alarm_id+'|'+msg.config.card_id);sharedUpdate(next,msg.config.days);notify(msg.config.alarm_id);return clone(next);}
+ if(msg.action==='create'){if(record?.binding.card_id===msg.config.card_id&&JSON.stringify(record.binding)!==JSON.stringify(binding(msg.config)))throw Error('Geräte sind festgelegt.');const next={exists:true,binding:binding(msg.config),name:msg.config.name,version:'1.14.1',days:clone(msg.config.days),settings:{...clone(settings),types:Object.fromEntries(msg.config.days.map(d=>[d.id,{...(clone(settings.types[d.id]||{time:'06:00',music:false,presets:[]})),enabled:false,music:d.music_mode==='always',calendar_mode:d.calendar_mode,sunrise_minutes:0}]))},revision:1};records.set(msg.config.alarm_id,next);dashboardRefs.add(msg.config.alarm_id+'|'+msg.config.card_id);sharedUpdate(next,msg.config.days);notify(msg.config.alarm_id);return clone(next);}
  if(msg.action==='configure_days'||msg.action==='configure'){if(user!=='admin')throw Error('Keine Berechtigung');if(msg.revision!==record.revision)throw {code:'conflict',message:'Auf einem anderen Gerät geändert.'};const previous=record.settings.types,days=msg.days||msg.config.days;if(msg.config){record.binding=binding(msg.config);record.name=msg.config.name;}sharedUpdate(record,days);record.settings.types=Object.fromEntries(record.days.map(d=>[d.id,{...(previous[d.id]||{time:'06:00',enabled:false,music:d.music_mode==='always',presets:[],sunrise_minutes:0}),calendar_mode:d.calendar_mode}]));record.revision++;notify(msg.alarm_id||msg.config.alarm_id);return clone(record);}
  if(msg.action==='set_playback'){if(fail)throw Error('Speichern fehlgeschlagen');record.playback=clone(msg.playback);record.revision++;notify(msg.alarm_id);return clone(record);}
  if(msg.action==='set_enabled'){if(fail)throw {code:'save_failed',message:'Speichern fehlgeschlagen'};const day=record.days?.find(d=>d.id===msg.kind);if((day?.confirm_disable||msg.kind==='schultag')&&record.settings.types[msg.kind].enabled&&!msg.enabled&&!msg.confirm_disable?.includes(msg.kind))throw {code:'confirmation_required',message:'Ausschalten bitte bestätigen'};record.settings.types[msg.kind].enabled=msg.enabled;record.revision++;notify(msg.alarm_id);return clone(record);}
